@@ -9,8 +9,8 @@ def bars(close: float = 12.0) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "open": [12.5, 12.2],
-            "high": [13.0, 12.8],
-            "low": [11.5, 11.0],
+            "high": [13.0, max(12.8, close + 0.2)],
+            "low": [11.5, min(11.0, close - 0.2)],
             "close": [12.2, close],
         },
         index=pd.date_range("2026-09-15 12:00", periods=2, freq="5min", tz="UTC"),
@@ -93,6 +93,68 @@ def bearish_context(*, entry_state="CONTINUATION_READY", terminal_reached=False,
     }
 
 
+def bullish_context():
+    local = {
+        "reversal": {
+            "csd": {
+                "direction": "BULLISH",
+                "confirmation_position": 6,
+                "protected_extreme": 14.0,
+            },
+            "post_csd_iofc": {
+                "confirmed": True,
+                "confirmation_range": {
+                    "low": 16.2,
+                    "high": 17.0,
+                    "source_position": 7,
+                    "confirmed_position": 8,
+                    "status": "ACTIVE",
+                },
+            },
+        },
+        "fair_value": {
+            "structural_fvg_candidates": [
+                {
+                    "direction": "BULLISH",
+                    "low": 16.5,
+                    "high": 17.2,
+                    "consequent_encroachment": 16.85,
+                    "fair_valuation_point": 16.3,
+                    "formation_position": 9,
+                    "status": "OPEN",
+                }
+            ]
+        },
+        "parent_relative_run": {"classification": "LRLR", "target_scope": "ERL"},
+        "liquidity_run": {"classification": "LRLR", "target_scope": "ERL"},
+        "narrative_draw": None,
+    }
+    return {
+        "bias_narrative": {
+            "execution_timeframe": "5m",
+            "timeframes": {"5m": local},
+        },
+        "mmxm": {
+            "execution_model": {
+                "model": "MMBM",
+                "stage": "CONTINUATION_PHASE",
+                "final_direction": "BULLISH",
+                "terminal": {
+                    "price": 21.0,
+                    "purpose": "MMXM_TERMINAL",
+                    "side": "BUY_SIDE",
+                    "liquidity_class": "EXTERNAL",
+                    "reached": False,
+                },
+                "smart_money_reversal": {
+                    "signature": {"type": "FAILURE_SWING", "evidence": {}}
+                },
+            }
+        },
+        "entry_model": {"state": "CONTINUATION_READY"},
+    }
+
+
 def test_trade_plan_exposes_stop_target_and_locations_without_authorizing_order():
     result = TradePlanEngine().analyze(bearish_context(), bars()).to_dict()
 
@@ -108,6 +170,17 @@ def test_trade_plan_exposes_stop_target_and_locations_without_authorizing_order(
     ]
     assert all(location["entry_signal"] is False for location in result["execution_locations"])
     assert result["risk_reward_status"] == "WAIT_FOR_ENTRY_PRICE"
+    assert result["order_authorized"] is False
+
+
+def test_bullish_trade_plan_mirrors_stop_target_geometry():
+    result = TradePlanEngine().analyze(bullish_context(), bars(close=18.0)).to_dict()
+
+    assert result["state"] == TradePlanState.READY_FOR_ENTRY_SELECTION.value
+    assert result["direction"] == "BULLISH"
+    assert result["invalidation"]["price"] == 14.0
+    assert result["invalidation"]["kind"] == "PROTECTED_LOW"
+    assert result["primary_target"]["price"] == 21.0
     assert result["order_authorized"] is False
 
 
