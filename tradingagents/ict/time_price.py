@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from .daily_profile import DailyProfileEngine, FIXED_UTC_MINUS_4
+from .daily_profile import FIXED_UTC_MINUS_4, DailyProfileEngine
 from .order_flow import _normalize_ohlc
 
 
