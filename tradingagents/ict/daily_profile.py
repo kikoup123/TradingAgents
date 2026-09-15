@@ -27,10 +27,12 @@ class DailyProfileEngine:
     it is naive, it is interpreted as already expressed in the fixed UTC-4
     trading clock.
 
-    A Londres trading day starts at 18:00 UTC-4 and ends immediately before the
-    following 18:00. Weekly profile context determines whether the day is a
-    continuation, reversal, retracement, or unresolved candidate; actual body
-    delivery and order-flow control determine whether the hypothesis confirms.
+    A Londres trading day starts at 18:00 UTC-4 on the prior calendar date and
+    ends immediately before 18:00 on the labelled trading date. For example,
+    Tuesday's trading day begins Monday at 18:00. Weekly profile context
+    determines whether the day is a continuation, reversal, retracement, or
+    unresolved candidate; actual body delivery and order-flow control determine
+    whether the hypothesis confirms.
     """
 
     def analyze(
@@ -135,8 +137,8 @@ class DailyProfileEngine:
     def _trading_day_key(ts: pd.Timestamp):
         local = pd.Timestamp(ts)
         if local.hour >= DAILY_ROLLOVER_HOUR:
-            return local.date()
-        return (local - pd.Timedelta(days=1)).date()
+            return (local + pd.Timedelta(days=1)).date()
+        return local.date()
 
     @staticmethod
     def _observed_delivery(high_position: int, low_position: int) -> DailyDelivery:
