@@ -217,6 +217,7 @@ class TimePriceEngine:
         timestamp = matches.index[-1]
         level = float(row["open"])
         post = current.loc[current.index >= timestamp]
+        revisit = current.loc[current.index > timestamp]
 
         relation = "AT"
         if current_price > level:
@@ -224,11 +225,15 @@ class TimePriceEngine:
         elif current_price < level:
             relation = "BELOW"
 
-        touched = bool(((post["low"] <= level) & (post["high"] >= level)).any())
+        touched = bool(
+            ((revisit["low"] <= level) & (revisit["high"] >= level)).any()
+        ) if not revisit.empty else False
+
         closes = post["close"] - level
         signs = closes.apply(lambda value: 1 if value > 0 else (-1 if value < 0 else 0))
-        previous = signs.shift(1)
-        crossings = signs[(signs != 0) & (previous.notna()) & (previous != 0) & (signs != previous)]
+        nonzero = signs[signs != 0]
+        previous = nonzero.shift(1)
+        crossings = nonzero[(previous.notna()) & (nonzero != previous)]
         crossed = not crossings.empty
         last_cross_time = crossings.index[-1].isoformat() if crossed else None
 
@@ -257,7 +262,8 @@ class TimePriceEngine:
         if config.projection_count < 1:
             raise ValueError("ONS projection_count must be >= 1")
 
-        source_index = current.index.tz_convert(ZoneInfo(config.timezone))
+        source_zone = ZoneInfo(config.timezone)
+        source_index = current.index.tz_convert(source_zone)
         start_clock = time(config.start_hour, config.start_minute)
         end_clock = time(config.end_hour, config.end_minute)
         local_times = [ts.time().replace(tzinfo=None) for ts in source_index]
@@ -282,13 +288,25 @@ class TimePriceEngine:
                 range_size=None,
             )
 
-        # A 24h Londres trading day should contain at most one occurrence of each
-        # configured ONS. Defensive grouping prevents accidental mixing if a
-        # wider input slice is supplied.
-        local_session_index = session.index.tz_convert(ZoneInfo(config.timezone))
-        local_dates = pd.Index([ts.date() for ts in local_session_index])
-        selected_date = local_dates[-1]
-        session = session.loc[(local_dates == selected_date).to_numpy()]
+        local_session_index = session.index.tz_convert(source_zone)
+        source_dates = pd.Index([ts.date() for ts in local_session_index])
+
+        if start_clock < end_clock:
+            selected_anchor = source_dates[-1]
+            same_session = source_dates == selected_anchor
+        else:
+            # Anchor an overnight session to the date on which its start occurs.
+            anchors = []
+            for ts in local_session_index:
+                clock = ts.time().replace(tzinfo=None)
+                anchor = ts.date() if clock >= start_clock else (ts - pd.Timedelta(days=1)).date()
+                anchors.append(anchor)
+            anchors = pd.Index(anchors)
+            selected_anchor = anchors[-1]
+            same_session = anchors == selected_anchor
+
+        session = session.loc[same_session]
+        local_session_index = session.index.tz_convert(source_zone)
 
         if config.range_type == "Wicks":
             high = float(session["high"].max())
@@ -310,11 +328,12 @@ class TimePriceEngine:
             lower.append({"deviation": -deviation, "price": low - deviation * range_size})
 
         first = session.index[0]
-        last = session.index[-1]
-        source_last = last.tz_convert(ZoneInfo(config.timezone))
-        expected_end = source_last.normalize() + pd.Timedelta(
+        anchor = pd.Timestamp(selected_anchor).tz_localize(source_zone)
+        expected_end = anchor + pd.Timedelta(
             hours=config.end_hour, minutes=config.end_minute
         )
+        if start_clock >= end_clock:
+            expected_end += pd.Timedelta(days=1)
         expected_end = expected_end.tz_convert(FIXED_UTC_MINUS_4)
         status = "ACTIVE" if as_of < expected_end else "COMPLETE"
 
