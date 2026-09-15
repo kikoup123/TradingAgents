@@ -23,9 +23,10 @@ DRIVER_LABEL = "06:00"
 class H4ProfileEngine:
     """Classify the Londres H4 daily profile on a fixed UTC-4 clock.
 
-    The six H4 candles of the trading day are anchored at 18:00, 22:00,
-    02:00, 06:00, 10:00, and 14:00. The 06:00 H4 candle is treated as the
-    driver in Phase 2 because the supplied profile model distinguishes:
+    The six H4 candles of the labelled trading day are anchored at 18:00 on
+    the prior calendar date, then 22:00, 02:00, 06:00, 10:00, and 14:00. The
+    06:00 H4 candle is treated as the driver in Phase 2 because the supplied
+    profile model distinguishes:
 
     * reversal established before the driver -> driver continuation;
     * no reversal before the driver -> driver reversal;
@@ -52,10 +53,11 @@ class H4ProfileEngine:
         day_keys = [DailyProfileEngine._trading_day_key(ts) for ts in data.index]
         current_key = day_keys[-1]
         current = data.loc[[key == current_key for key in day_keys]].copy()
+        session_start_date = pd.Timestamp(current_key) - pd.Timedelta(days=1)
         day_start = pd.Timestamp(
-            year=current_key.year,
-            month=current_key.month,
-            day=current_key.day,
+            year=session_start_date.year,
+            month=session_start_date.month,
+            day=session_start_date.day,
             hour=18,
             tz=FIXED_UTC_MINUS_4,
         )
