@@ -70,8 +70,13 @@ class AgentState(MessagesState):
     time_price_state: Annotated[
         dict, "Deterministic opening-price and ONS map including EQ and projection levels"
     ]
+    liquidity_state: Annotated[
+        dict,
+        "Deterministic BSL/SSL, IRL/ERL, raids, protected liquidity, and active draw map",
+    ]
     londres_context_state: Annotated[
-        dict, "Combined Weekly -> Daily -> H4 -> Time & Price deterministic context"
+        dict,
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity deterministic context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
