@@ -11,6 +11,14 @@ from .liquidity import (
     LiquiditySide,
     LiquidityStatus,
 )
+from .mmxm import (
+    EntryState,
+    MMXMDetection,
+    MMXMEngine,
+    MMXMStage,
+    MMXMType,
+    SMRSignature,
+)
 from .models import (
     DailyDelivery,
     DailyPhase,
@@ -41,6 +49,7 @@ from .phase4 import LondresPhase4Engine
 from .phase5 import LondresPhase5Engine
 from .phase6 import LondresPhase6Engine
 from .phase7 import LondresPhase7Engine
+from .phase8 import LondresPhase8Engine
 from .smt import (
     DEFAULT_SMT_GROUPS,
     SMTEngine,
@@ -69,7 +78,14 @@ __all__ = [
     "FairValueGap",
     "NarrativeEngine",
     "classify_liquidity_run",
+    "EntryState",
+    "MMXMDetection",
+    "MMXMEngine",
+    "MMXMStage",
+    "MMXMType",
+    "SMRSignature",
     "LondresPhase7Engine",
+    "LondresPhase8Engine",
     "CSDPivotReference",
     "CSDResult",
     "CSDEngine",
