@@ -8,7 +8,9 @@ Weekly Profile + IOF/IOFC engine.
 The Londres profile clock is **fixed UTC-4 all year**. It intentionally does
 not use `America/New_York` DST transitions.
 
-The trading day rolls at **18:00 UTC-4**. Its H4 candles are:
+The trading day rolls at **18:00 UTC-4 on the prior calendar date**. In other
+words, Tuesday's trading day begins Monday at 18:00 and ends immediately before
+Tuesday at 18:00. Its H4 candles are:
 
 - 18:00
 - 22:00
