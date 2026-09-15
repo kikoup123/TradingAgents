@@ -12,12 +12,12 @@ from tradingagents.ict import (
 )
 
 
-def weekly(day_type, direction=Direction.BULLISH):
+def weekly(day_type, direction=Direction.BULLISH, current_day="THURSDAY"):
     return WeeklyProfileResult(
         profile=WeeklyProfileType.CLASSIC_EXPANSION,
         status=ProfileStatus.CONFIRMED,
         direction=direction,
-        current_day="THURSDAY",
+        current_day=current_day,
         current_day_type=day_type,
         week_phase="TEST",
         weekly_extreme=None,
@@ -59,6 +59,7 @@ def test_bullish_continuation_confirms_olhc_after_low_then_high():
         opposing_draw_reached=False,
     )
 
+    assert result.trading_day == "2026-09-16"
     assert result.expected_delivery == DailyDelivery.OLHC
     assert result.observed_delivery == DailyDelivery.OLHC
     assert result.status == ProfileStatus.CONFIRMED
@@ -103,25 +104,30 @@ def test_bullish_week_friday_retracement_inverts_expected_daily_delivery():
             (113, 113, 106, 107),
         ],
         [
-            "2026-09-18 18:00",
-            "2026-09-18 22:00",
-            "2026-09-19 02:00",
+            "2026-09-17 18:00",
+            "2026-09-17 22:00",
+            "2026-09-18 02:00",
         ],
     )
 
     result = DailyProfileEngine().analyze(
         data,
-        weekly_profile=weekly(DayType.RETRACEMENT_CANDIDATE, Direction.BULLISH),
+        weekly_profile=weekly(
+            DayType.RETRACEMENT_CANDIDATE,
+            Direction.BULLISH,
+            current_day="FRIDAY",
+        ),
         daily_order_flow_control=Direction.BEARISH,
         protected_daily_extreme=True,
     )
 
+    assert result.trading_day == "2026-09-18"
     assert result.direction == Direction.BEARISH
     assert result.expected_delivery == DailyDelivery.OHLC
     assert result.phase == DailyPhase.RETRACEMENT
 
 
-def test_daily_rollover_starts_at_1800_fixed_utc_minus_4():
+def test_daily_rollover_starts_at_1800_and_labels_the_next_trading_date():
     data = bars(
         [
             (90, 92, 89, 91),
@@ -142,7 +148,7 @@ def test_daily_rollover_starts_at_1800_fixed_utc_minus_4():
         weekly_profile=weekly(DayType.CONTINUATION_CANDIDATE),
     )
 
-    assert result.trading_day == "2026-09-15"
+    assert result.trading_day == "2026-09-16"
     assert result.daily_open == 100
     assert result.daily_low == 97
 
