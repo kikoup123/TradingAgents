@@ -17,7 +17,7 @@ from tradingagents.ict import (
 def daily(direction=Direction.BULLISH):
     delivery = DailyDelivery.OLHC if direction == Direction.BULLISH else DailyDelivery.OHLC
     return DailyProfileResult(
-        trading_day="2026-09-15",
+        trading_day="2026-09-16",
         direction=direction,
         day_type=DayType.CONTINUATION_CANDIDATE,
         expected_delivery=delivery,
