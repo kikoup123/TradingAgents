@@ -50,6 +50,15 @@ class AgentState(MessagesState):
     instrument_context: Annotated[str, "Deterministic ticker identity resolved at run start"]
     trade_date: Annotated[str, "What date we are trading at"]
 
+    # Londres deterministic market-structure context
+    analysis_mode: Annotated[str, "Londres analysis horizon: SWING or DAILY_SWING"]
+    weekly_profile_state: Annotated[
+        dict, "Deterministic weekly profile, day type, expected OLHC/OHLC delivery, and status"
+    ]
+    htf_order_flow_state: Annotated[
+        dict, "Deterministic multi-timeframe IOF/IOFC control map"
+    ]
+
     sender: Annotated[str, "Agent that sent this message"]
 
     # research step
