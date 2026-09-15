@@ -67,6 +67,12 @@ class AgentState(MessagesState):
     profile_stack_state: Annotated[
         dict, "Combined Weekly -> Daily -> H4 deterministic profile inheritance"
     ]
+    time_price_state: Annotated[
+        dict, "Deterministic opening-price and ONS map including EQ and projection levels"
+    ]
+    londres_context_state: Annotated[
+        dict, "Combined Weekly -> Daily -> H4 -> Time & Price deterministic context"
+    ]
 
     sender: Annotated[str, "Agent that sent this message"]
 
