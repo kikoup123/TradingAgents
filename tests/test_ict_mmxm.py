@@ -15,6 +15,18 @@ def frame(rows, *, start="2026-09-14 18:00", freq="5min"):
     )
 
 
+def mirror(bars: pd.DataFrame, *, center: float = 30.0) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "open": center - bars.open,
+            "high": center - bars.low,
+            "low": center - bars.high,
+            "close": center - bars.close,
+        },
+        index=bars.index,
+    )
+
+
 def failure_swing_bars():
     return frame(
         [
@@ -97,6 +109,71 @@ def narrative_for_mmsm(*, continuation=False, matrix=(14.0, 16.0)):
     return {"hierarchy": ["1H", "5m"], "timeframes": {"1H": parent, "5m": local}}
 
 
+def narrative_for_mmbm(*, continuation=False):
+    events = []
+    if continuation:
+        events.append({"position": 9, "event": "REACCUMULATION"})
+    local = {
+        "timeframe": "5m",
+        "price_delivery": {
+            "original_consolidation": {
+                "low": 18.8,
+                "high": 21.0,
+                "start_position": 0,
+                "end_position": 2,
+                "status": "DISPLACEMENT_CONFIRMED",
+                "departure_position": 3,
+            },
+            "events": events,
+        },
+        "fair_value": {
+            "gaps": [
+                {
+                    "formation_position": 3,
+                    "source_position": 3,
+                    "direction": "BEARISH",
+                }
+            ]
+        },
+        "parent_matrices": [],
+        "reversal": {
+            "confirmed": True,
+            "csd": {
+                "direction": "BULLISH",
+                "raid_position": 5,
+                "confirmation_position": 8,
+                "protected_extreme": 14.0,
+            },
+            "post_csd_iofc": {"confirmed": True, "expected_direction": "BULLISH"},
+            "matrix": {
+                "timeframe": "1H",
+                "low": 14.0,
+                "high": 16.0,
+                "kind": "IOF_RANGE",
+            },
+        },
+        "liquidity": {
+            "external_low": 14.0,
+            "external_high": 21.0,
+            "active_draw": {
+                "side": "BUY_SIDE",
+                "liquidity_class": "EXTERNAL",
+                "price": 21.0,
+            },
+            "buy_side": [],
+            "sell_side": [],
+        },
+    }
+    parent = {
+        "timeframe": "1H",
+        "liquidity": {
+            "external_low": 12.0,
+            "external_high": 22.0,
+        },
+    }
+    return {"hierarchy": ["1H", "5m"], "timeframes": {"1H": parent, "5m": local}}
+
+
 def test_failure_swing_at_premium_matrix_confirms_mmsm_smr():
     result = MMXMEngine(pivot_span=1).analyze(
         failure_swing_bars(),
@@ -113,11 +190,37 @@ def test_failure_swing_at_premium_matrix_confirms_mmsm_smr():
     assert result["smart_money_reversal"]["signature"]["type"] == "FAILURE_SWING"
 
 
+def test_mirrored_failure_swing_at_discount_matrix_confirms_mmbm_smr():
+    result = MMXMEngine(pivot_span=1).analyze(
+        mirror(failure_swing_bars()),
+        timeframe="5m",
+        narrative=narrative_for_mmbm(),
+    ).to_dict()
+
+    assert result["model"] == MMXMType.MMBM.value
+    assert result["approach_direction"] == Direction.BEARISH.value
+    assert result["final_direction"] == Direction.BULLISH.value
+    assert result["matrix_location"] == "DISCOUNT"
+    assert result["stage"] == MMXMStage.SMART_MONEY_REVERSAL_CONFIRMED.value
+    assert result["smart_money_reversal"]["confirmed"] is True
+    assert result["smart_money_reversal"]["signature"]["type"] == "FAILURE_SWING"
+
+
 def test_first_post_reversal_redistribution_advances_mmsm_to_continuation():
     result = MMXMEngine(pivot_span=1).analyze(
         failure_swing_bars(),
         timeframe="5m",
         narrative=narrative_for_mmsm(continuation=True),
+    ).to_dict()
+
+    assert result["stage"] == MMXMStage.CONTINUATION_PHASE.value
+
+
+def test_first_post_reversal_reaccumulation_advances_mmbm_to_continuation():
+    result = MMXMEngine(pivot_span=1).analyze(
+        mirror(failure_swing_bars()),
+        timeframe="5m",
+        narrative=narrative_for_mmbm(continuation=True),
     ).to_dict()
 
     assert result["stage"] == MMXMStage.CONTINUATION_PHASE.value
@@ -155,6 +258,55 @@ def test_breaker_requires_failed_old_iof_range_and_retest_from_new_side():
     assert evidence is not None
     assert evidence["direction"] == "BEARISH"
     assert evidence["rule"] == "INVALIDATED_OPPOSING_IOF_RANGE_RETESTED_FROM_NEW_SIDE"
+
+
+def test_mmxm_prefix_replay_ignores_future_bars():
+    bars = failure_swing_bars()
+    engine = MMXMEngine(pivot_span=1)
+    cutoff = bars.index[8]
+    full = engine.analyze(
+        bars,
+        timeframe="5m",
+        narrative=narrative_for_mmsm(),
+        as_of=cutoff,
+    ).to_dict()
+    prefix = engine.analyze(
+        bars.iloc[:9],
+        timeframe="5m",
+        narrative=narrative_for_mmsm(),
+        as_of=cutoff,
+    ).to_dict()
+    assert full == prefix
+
+
+def test_terminal_reached_requires_post_reversal_external_liquidity_event():
+    state = narrative_for_mmsm()["timeframes"]["5m"]
+    state["liquidity"]["sell_side"] = [
+        {
+            "side": "SELL_SIDE",
+            "liquidity_class": "EXTERNAL",
+            "price": 9.0,
+            "status": "CONSUMED",
+            "event_position": 9,
+        }
+    ]
+    terminal = MMXMEngine._terminal(state, Direction.BEARISH, state["reversal"])
+    assert terminal is not None
+    assert terminal["reached"] is True
+    assert terminal["purpose"] == "MMXM_TERMINAL"
+
+
+def test_parent_relationship_preserves_counter_model_as_child_context():
+    relation, parent_tf = MMXMEngine._parent_relationship(
+        {
+            "timeframe": "1H",
+            "stage": MMXMStage.CONTINUATION_PHASE.value,
+            "final_direction": "BEARISH",
+        },
+        Direction.BULLISH,
+    )
+    assert relation == "COUNTER_MODEL_WITHIN_PARENT"
+    assert parent_tf == "1H"
 
 
 def test_entry_contract_never_authorizes_order_and_requires_parent_alignment():
