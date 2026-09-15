@@ -78,9 +78,21 @@ class AgentState(MessagesState):
         dict,
         "Deterministic SMT divergence with polarity normalization and CSD+IOF validation state",
     ]
+    csd_state: Annotated[
+        dict,
+        "Deterministic CSD events from liquidity raid through opposing-close candle open reclaim",
+    ]
+    post_csd_iofc_state: Annotated[
+        dict,
+        "Deterministic IOFC formed only from a new opposing-close range after confirmed CSD",
+    ]
+    execution_gate_state: Annotated[
+        dict,
+        "SMT -> CSD -> post-CSD IOFC validation gate and directional state",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT deterministic context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
