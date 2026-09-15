@@ -34,6 +34,17 @@ from .phase1 import LondresPhase1Engine
 from .phase2 import LondresPhase2Engine
 from .phase3 import LondresPhase3Engine
 from .phase4 import LondresPhase4Engine
+from .phase5 import LondresPhase5Engine
+from .smt import (
+    DEFAULT_SMT_GROUPS,
+    SMTEngine,
+    SMTGroupConfig,
+    SMTLegConfig,
+    SMTPolarity,
+    SMTReference,
+    SMTResult,
+    SMTValidationState,
+)
 from .time_price import (
     DEFAULT_ONS_CONFIGS,
     DEFAULT_OPEN_SPECS,
@@ -50,6 +61,7 @@ __all__ = [
     "DAILY_ROLLOVER_HOUR",
     "DEFAULT_ONS_CONFIGS",
     "DEFAULT_OPEN_SPECS",
+    "DEFAULT_SMT_GROUPS",
     "DRIVER_LABEL",
     "FIXED_UTC_MINUS_4",
     "H4_LABELS",
@@ -76,6 +88,7 @@ __all__ = [
     "LondresPhase2Engine",
     "LondresPhase3Engine",
     "LondresPhase4Engine",
+    "LondresPhase5Engine",
     "ONSConfig",
     "ONSRangeResult",
     "OpenLevelResult",
@@ -86,6 +99,13 @@ __all__ = [
     "ProfileStatus",
     "RangeRole",
     "RangeStatus",
+    "SMTEngine",
+    "SMTGroupConfig",
+    "SMTLegConfig",
+    "SMTPolarity",
+    "SMTReference",
+    "SMTResult",
+    "SMTValidationState",
     "TimePriceEngine",
     "TimePriceResult",
     "WeeklyExtreme",
