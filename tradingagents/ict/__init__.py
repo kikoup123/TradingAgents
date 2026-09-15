@@ -50,6 +50,7 @@ from .phase5 import LondresPhase5Engine
 from .phase6 import LondresPhase6Engine
 from .phase7 import LondresPhase7Engine
 from .phase8 import LondresPhase8Engine
+from .phase9 import LondresPhase9Engine
 from .smt import (
     DEFAULT_SMT_GROUPS,
     SMTEngine,
@@ -70,6 +71,7 @@ from .time_price import (
     TimePriceEngine,
     TimePriceResult,
 )
+from .trade_plan import TradePlanContext, TradePlanEngine, TradePlanState
 from .weekly_profile import WeeklyProfileEngine
 
 __all__ = [
@@ -84,8 +86,12 @@ __all__ = [
     "MMXMStage",
     "MMXMType",
     "SMRSignature",
+    "TradePlanContext",
+    "TradePlanEngine",
+    "TradePlanState",
     "LondresPhase7Engine",
     "LondresPhase8Engine",
+    "LondresPhase9Engine",
     "CSDPivotReference",
     "CSDResult",
     "CSDEngine",
