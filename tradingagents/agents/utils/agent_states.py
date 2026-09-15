@@ -90,14 +90,32 @@ class AgentState(MessagesState):
         dict,
         "SMT -> CSD -> post-CSD IOFC validation gate and directional state",
     ]
-    bias_narrative_state: Annotated[dict, "HTF WHAT / LTF WHEN, curve, previous candle draw and parent control"]
-    fair_value_state: Annotated[dict, "Per-timeframe FVG lifecycle and structural fair-valuation/pairing evidence"]
-    price_delivery_state: Annotated[dict, "Observed price-delivery cycle and engineer/neutralize/distribute/rebalance sequence"]
-    liquidity_run_state: Annotated[dict, "Local and parent-relative LRLR/HRLR with parent matrix boundaries"]
-    narrative_gate_state: Annotated[dict, "Phase 6 confirmation plus directional narrative context; not an order instruction"]
+    bias_narrative_state: Annotated[
+        dict, "HTF WHAT / LTF WHEN, curve, previous candle draw and parent control"
+    ]
+    fair_value_state: Annotated[
+        dict, "Per-timeframe FVG lifecycle and structural fair-valuation/pairing evidence"
+    ]
+    price_delivery_state: Annotated[
+        dict, "Observed price-delivery cycle and engineer/neutralize/distribute/rebalance sequence"
+    ]
+    liquidity_run_state: Annotated[
+        dict, "Local and parent-relative LRLR/HRLR with parent matrix boundaries"
+    ]
+    narrative_gate_state: Annotated[
+        dict, "Phase 6 confirmation plus directional narrative context; not an order instruction"
+    ]
+    mmxm_state: Annotated[
+        dict,
+        "Deterministic OC -> matrix -> Smart Money Reversal -> terminal MMXM hierarchy",
+    ]
+    entry_model_state: Annotated[
+        dict,
+        "WAIT/REVERSAL_READY/CONTINUATION_READY/INVALIDATED context; never broker authorization",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
@@ -123,4 +141,7 @@ class AgentState(MessagesState):
         RiskDebateState, "Current state of the debate on evaluating risk"
     ]
     final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
-    past_context: Annotated[str, "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)"]
+    past_context: Annotated[
+        str,
+        "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)",
+    ]
