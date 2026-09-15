@@ -24,6 +24,7 @@ from .models import (
 from .order_flow import OrderFlowEngine
 from .phase1 import LondresPhase1Engine
 from .phase2 import LondresPhase2Engine
+from .phase3 import LondresPhase3Engine
 from .time_price import (
     DEFAULT_ONS_CONFIGS,
     DEFAULT_OPEN_SPECS,
@@ -58,6 +59,7 @@ __all__ = [
     "IOFCResult",
     "LondresPhase1Engine",
     "LondresPhase2Engine",
+    "LondresPhase3Engine",
     "ONSConfig",
     "ONSRangeResult",
     "OpenLevelResult",
