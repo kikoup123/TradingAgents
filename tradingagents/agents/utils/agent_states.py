@@ -58,6 +58,15 @@ class AgentState(MessagesState):
     htf_order_flow_state: Annotated[
         dict, "Deterministic multi-timeframe IOF/IOFC control map"
     ]
+    daily_profile_state: Annotated[
+        dict, "Deterministic fixed-UTC-4 Daily OLHC/OHLC profile and phase"
+    ]
+    h4_profile_state: Annotated[
+        dict, "Deterministic H4 profile including 18/22/02/06/10/14 candles and 06:00 driver"
+    ]
+    profile_stack_state: Annotated[
+        dict, "Combined Weekly -> Daily -> H4 deterministic profile inheritance"
+    ]
 
     sender: Annotated[str, "Agent that sent this message"]
 
