@@ -113,9 +113,13 @@ class AgentState(MessagesState):
         dict,
         "WAIT/REVERSAL_READY/CONTINUATION_READY/INVALIDATED context; never broker authorization",
     ]
+    trade_plan_state: Annotated[
+        dict,
+        "Direction, CSD protected invalidation, MMXM objective and eligible post-confirmation locations",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
