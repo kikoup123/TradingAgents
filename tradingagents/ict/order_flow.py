@@ -86,6 +86,19 @@ class OrderFlowEngine:
             close = float(row["close"])
             time_label = _timestamp_label(index_value, position)
 
+            # Confirmed ranges remain live even after candidate retention rolls.
+            for confirmed in confirmed_events:
+                if confirmed.status != RangeStatus.CONFIRMED:
+                    continue
+                invalidated = (
+                    close < confirmed.low if confirmed.direction == Direction.BULLISH
+                    else close > confirmed.high
+                )
+                if invalidated:
+                    confirmed.status = RangeStatus.INVALIDATED
+                    confirmed.invalidated_position = position
+                    confirmed.invalidated_time = time_label
+
             for candidate in bullish_candidates:
                 if candidate.status == RangeStatus.CANDIDATE and close > candidate.high:
                     candidate.status = RangeStatus.CONFIRMED
@@ -151,10 +164,10 @@ class OrderFlowEngine:
         latest_event = confirmed_events[-1] if confirmed_events else None
 
         active_support = [
-            item for item in bullish_candidates if item.status == RangeStatus.CONFIRMED
+            item for item in confirmed_events if item.status == RangeStatus.CONFIRMED and item.direction == Direction.BULLISH
         ]
         active_resistance = [
-            item for item in bearish_candidates if item.status == RangeStatus.CONFIRMED
+            item for item in confirmed_events if item.status == RangeStatus.CONFIRMED and item.direction == Direction.BEARISH
         ]
 
         control = Direction.UNCONFIRMED
@@ -186,7 +199,7 @@ class OrderFlowEngine:
         anchor_position: int,
         expected_direction: Direction,
     ) -> IOFCResult:
-        """Find the first confirming IOFC range formed AFTER a CSD/anchor event.
+        """Find the first still-valid IOFC range formed AFTER a CSD/anchor event.
 
         Bullish CSD -> wait for a NEW down-close range -> later body close above it.
         Bearish CSD -> wait for a NEW up-close range -> later body close below it.
@@ -198,67 +211,18 @@ class OrderFlowEngine:
         if anchor_position < -1 or anchor_position >= len(data):
             raise ValueError("anchor_position is outside the supplied bars")
 
-        candidates: list[OrderFlowRange] = []
-
-        for position, (index_value, row) in enumerate(data.iterrows()):
-            if position <= anchor_position:
-                continue
-
-            close = float(row["close"])
-            time_label = _timestamp_label(index_value, position)
-
-            for candidate in candidates:
-                if candidate.status != RangeStatus.CANDIDATE:
-                    continue
-
-                confirmed = (
-                    expected_direction == Direction.BULLISH and close > candidate.high
-                ) or (
-                    expected_direction == Direction.BEARISH and close < candidate.low
-                )
-                if confirmed:
-                    candidate.status = RangeStatus.CONFIRMED
-                    candidate.confirmed_position = position
-                    candidate.confirmed_time = time_label
-                    return IOFCResult(
-                        expected_direction=expected_direction,
-                        confirmed=True,
-                        confirmation_range=candidate,
-                        reason="BODY_CLOSE_CONFIRMED_POST_CSD_IOFC",
-                    )
-
-            candle_open = float(row["open"])
-            candle_high = float(row["high"])
-            candle_low = float(row["low"])
-
-            if expected_direction == Direction.BULLISH and close < candle_open:
-                candidates.append(
-                    OrderFlowRange(
-                        direction=Direction.BULLISH,
-                        role=RangeRole.SUPPORT,
-                        source_position=position,
-                        source_time=time_label,
-                        low=candle_low,
-                        high=candle_high,
-                        source_open=candle_open,
-                        source_close=close,
-                    )
-                )
-            elif expected_direction == Direction.BEARISH and close > candle_open:
-                candidates.append(
-                    OrderFlowRange(
-                        direction=Direction.BEARISH,
-                        role=RangeRole.RESISTANCE,
-                        source_position=position,
-                        source_time=time_label,
-                        low=candle_low,
-                        high=candle_high,
-                        source_open=candle_open,
-                        source_close=close,
-                    )
-                )
-
-            candidates = candidates[-self.max_candidate_ranges :]
+        result = self.analyze(data, timeframe="POST_CSD")
+        eligible = [event for event in result.confirmed_events
+                    if event.source_position > anchor_position
+                    and event.direction == expected_direction
+                    and event.status == RangeStatus.CONFIRMED]
+        if eligible and result.control == expected_direction:
+            return IOFCResult(
+                expected_direction=expected_direction,
+                confirmed=True,
+                confirmation_range=eligible[0],
+                reason="BODY_CLOSE_CONFIRMED_POST_CSD_IOFC",
+            )
 
         return IOFCResult(
             expected_direction=expected_direction,

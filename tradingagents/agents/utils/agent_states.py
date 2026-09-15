@@ -90,6 +90,11 @@ class AgentState(MessagesState):
         dict,
         "SMT -> CSD -> post-CSD IOFC validation gate and directional state",
     ]
+    bias_narrative_state: Annotated[dict, "HTF WHAT / LTF WHEN, curve, previous candle draw and parent control"]
+    fair_value_state: Annotated[dict, "Per-timeframe FVG lifecycle and structural fair-valuation/pairing evidence"]
+    price_delivery_state: Annotated[dict, "Observed price-delivery cycle and engineer/neutralize/distribute/rebalance sequence"]
+    liquidity_run_state: Annotated[dict, "Local and parent-relative LRLR/HRLR with parent matrix boundaries"]
+    narrative_gate_state: Annotated[dict, "Phase 6 confirmation plus directional narrative context; not an order instruction"]
     londres_context_state: Annotated[
         dict,
         "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC context",

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 import pandas as pd
 
 from .csd import CSDEngine, CSDEvent
+from .market_data import analysis_time, closed_bars
 from .models import Direction, H4LocationContext, IOFCResult
 from .order_flow import OrderFlowEngine
 from .phase4 import LondresPhase4Engine
@@ -55,6 +56,15 @@ class LondresPhase6Engine:
         as_of: pd.Timestamp | str | None = None,
         current_price: float | None = None,
     ) -> dict:
+        # Apply one causal boundary to every branch of the stack, including
+        # the post-CSD scan. Positions now refer to the same sorted prefix.
+        if as_of is not None:
+            as_of = analysis_time(as_of)
+        timeframe_bars = {tf: closed_bars(bars, as_of) for tf, bars in timeframe_bars.items()}
+        intraday_bars = closed_bars(intraday_bars, as_of)
+        minute_bars = closed_bars(minute_bars, as_of)
+        csd_bars = closed_bars(csd_bars, as_of)
+        smt_bars = {symbol: closed_bars(bars, as_of) for symbol, bars in smt_bars.items()}
         context = self.phase4.analyze(
             timeframe_bars=timeframe_bars,
             intraday_bars=intraday_bars,
@@ -176,6 +186,14 @@ class LondresPhase6Engine:
     ) -> IOFCResult | None:
         if event is None:
             return None
+        after = csd_bars.iloc[event.confirmation_position + 1:]
+        broken = (
+            (after["close"] < event.protected_extreme).any()
+            if event.direction == Direction.BULLISH
+            else (after["close"] > event.protected_extreme).any()
+        )
+        if broken:
+            return IOFCResult(event.direction, False, reason="CSD_PROTECTED_EXTREME_INVALIDATED")
         return self.order_flow.find_iofc_after(
             csd_bars,
             anchor_position=event.confirmation_position,
