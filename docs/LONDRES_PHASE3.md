@@ -97,6 +97,12 @@ Weekly Profile
     -> Opening Prices / ONS / EQ / Deviations
 ```
 
+## Validation
+
+Phase 3 includes regression tests in `tests/test_ict_time_price.py`. The draft PR
+uses the repository's existing GitHub Actions CI workflow to run the full pytest
+matrix and Ruff checks before the Londres branch is considered merge-ready.
+
 The next phase should build the **Liquidity Engine** so these deterministic price
 levels can be classified as internal/external liquidity, swept/untouched,
 reclaimed, protected, or active draw targets before SMT and CSD are evaluated.
