@@ -74,9 +74,13 @@ class AgentState(MessagesState):
         dict,
         "Deterministic BSL/SSL, IRL/ERL, raids, protected liquidity, and active draw map",
     ]
+    smt_state: Annotated[
+        dict,
+        "Deterministic SMT divergence with polarity normalization and CSD+IOF validation state",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity deterministic context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT deterministic context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
