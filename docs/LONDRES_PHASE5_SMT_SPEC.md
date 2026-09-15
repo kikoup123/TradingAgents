@@ -1,97 +1,97 @@
-# Londres Phase 5 — Deterministic SMT Specification
+# Londres Phase 5 — Deterministic SMT Engine
 
-Phase 5 will implement SMT as a deterministic confirmation layer. SMT must never authorize a trade by itself.
+Phase 5 implements SMT as a deterministic relative-strength layer. SMT never authorizes a trade by itself.
 
 ## Validation hierarchy
 
-SMT has two different states and they must not be confused:
+SMT has two separate states:
 
-1. `SMT_DETECTED` — a deterministic relative-strength divergence exists between synchronized correlated instruments.
-2. `SMT_VALIDATED` — the detected SMT is confirmed by BOTH CSD and Institutional Order Flow in the same directional thesis.
+1. `detected=true` — a deterministic structural divergence exists between synchronized correlated instruments.
+2. `validated=true` — that SMT is confirmed by BOTH CSD and Institutional Order Flow in the same direction.
 
-The hard validation rule is:
+The hard rule is:
 
-`SMT_VALIDATED = SMT_DETECTED AND CSD_CONFIRMED AND IOF_ALIGNED`
+`SMT_VALIDATED = SMT_DETECTED AND CSD_CONFIRMED_AND_ALIGNED AND IOF_CONFIRMED_AND_ALIGNED`
 
-If either CSD or IOF is missing, conflicting, or still unconfirmed, the SMT remains contextual information only and cannot authorize an entry.
+If CSD or IOF is missing, conflicting, transitional, or unconfirmed, SMT remains contextual information only.
 
-Directional examples:
-- Bullish SMT + bullish CSD + bullish IOF -> validated bullish SMT.
-- Bearish SMT + bearish CSD + bearish IOF -> validated bearish SMT.
-- Bullish SMT + no CSD -> not validated.
-- Bullish SMT + bullish CSD + bearish/unconfirmed IOF -> not validated.
-- Bearish SMT + bearish CSD + bullish/unconfirmed IOF -> not validated.
-
-CSD establishes the change in price delivery. IOF confirms which side has control after that delivery shift. SMT is therefore evidence of relative weakness/strength, while CSD + IOF provide the execution-side validation.
+CSD establishes the change in price delivery. IOF confirms control after that delivery shift. SMT supplies relative-strength evidence; CSD + IOF validate its execution thesis.
 
 ## Correlation groups
 
-### US index triad — same-direction comparison
-- NQ / NASDAQ
-- ES / S&P 500
-- YM / Dow Jones
+### US index triad — same-direction
+- NQ / NAS100 / US100 / NASDAQ
+- ES / US500 / SPX / SP500
+- YM / US30 / DJI / DOW
 
-These are evaluated as positively correlated markets. A structural divergence occurs when one market takes or fails to take a corresponding high/low while the others do not confirm.
-
-### FX / Dollar triad — inverse DXY comparison
+### FX / Dollar triad — inverse DXY
 - EURUSD
 - GBPUSD
 - DXY
 
-DXY is explicitly an inverse leg. The engine must normalize DXY polarity before comparing structure.
+DXY is explicitly configured as `INVERSE`. The engine normalizes its polarity before comparison:
+- EURUSD/GBPUSD higher-high event corresponds to a DXY lower-low event.
+- EURUSD/GBPUSD lower-low event corresponds to a DXY higher-high event.
 
-Examples:
-- EURUSD and GBPUSD print a higher high while DXY fails to print the corresponding lower low -> potential bearish SMT in EURUSD/GBPUSD / bullish relative strength in DXY.
-- EURUSD and GBPUSD print a lower low while DXY fails to print the corresponding higher high -> potential bullish SMT in EURUSD/GBPUSD / bearish relative weakness in DXY.
-- DXY takes a previous high while EURUSD/GBPUSD fail to take corresponding lows -> potential bullish SMT in EURUSD/GBPUSD relative to DXY.
-- DXY takes a previous low while EURUSD/GBPUSD fail to take corresponding highs -> potential bearish SMT in EURUSD/GBPUSD relative to DXY.
-
-The engine must not compare DXY as if it were positively correlated with EURUSD/GBPUSD.
+DXY is never compared as if it were positively correlated with EURUSD/GBPUSD.
 
 ### Gold relative-strength group
 - XAUUSD
 - XAUAUD
 - XAUCAD
 
-This group is configurable and should support explicit polarity flags per instrument.
+The group configuration supports explicit polarity per leg.
 
-## Core SMT rules
+## Structural detection rules
 
-1. Synchronize instruments to the same timestamps and timeframe before comparison.
-2. Compare confirmed structural highs/lows and liquidity events, not arbitrary single ticks.
-3. Support both same-direction and inverse relationships using explicit polarity configuration.
-4. Record which leg created the divergence, which legs confirmed or failed to confirm, and the exact structural levels involved.
-5. A detected SMT is not a validated SMT until same-direction CSD and IOF confirmation exist.
-6. CSD and IOF must agree with the SMT directional thesis; conflicting order flow invalidates execution use of that SMT.
-7. SMT is contextual confirmation only and can never bypass liquidity, profile, time/price, or risk requirements.
-8. Do not infer missing bars or silently forward-fill structural highs/lows across unavailable market data.
+1. All legs are intersected to exact common timestamps. Missing bars are never forward-filled.
+2. Structural references are confirmed pivots requiring bars on both sides (`pivot_span`).
+3. Only pivots confirmed before the event bar may be used; the engine does not use future information.
+4. The engine detects the first take of the latest confirmed structural high or low.
+5. Same-direction legs compare like-for-like events.
+6. Inverse legs swap native high/low events into canonical group polarity before comparison.
+7. A high-side nonconfirmation maps to bearish SMT.
+8. A low-side nonconfirmation maps to bullish SMT.
+9. Simultaneous conflicting high-side and low-side divergence on the same bar is treated as ambiguous rather than validated.
 
-## Planned deterministic output
+## Validation states
 
-- group
-- timeframe
-- reference_time
-- direction
-- smt_detected
-- smt_validated
-- divergence_type
-- leader_symbol
-- nonconfirming_symbols
-- compared_levels
-- polarity_map
-- liquidity_context
-- csd_confirmed
-- csd_direction
-- iof_control
-- iof_aligned
-- validation_state
-- reason_codes
-
-Recommended `validation_state` values:
 - `NO_SMT`
 - `SMT_DETECTED_WAIT_CSD`
 - `SMT_DETECTED_WAIT_IOF`
 - `SMT_DIRECTION_CONFLICT`
 - `SMT_VALIDATED`
 
-DXY must appear in `polarity_map` as `INVERSE` for the EURUSD/GBPUSD/DXY group.
+Examples:
+- Bullish SMT + bullish CSD + bullish IOF -> `SMT_VALIDATED`.
+- Bearish SMT + bearish CSD + bearish IOF -> `SMT_VALIDATED`.
+- Bullish SMT + no CSD -> `SMT_DETECTED_WAIT_CSD`.
+- Bullish SMT + bullish CSD + unconfirmed IOF -> `SMT_DETECTED_WAIT_IOF`.
+- SMT direction conflicting with CSD or IOF -> `SMT_DIRECTION_CONFLICT`.
+
+## Deterministic output
+
+The engine returns:
+- `group`
+- `timeframe`
+- `reference_time`
+- `direction`
+- `detected`
+- `validated`
+- `validation_state`
+- `divergence_type`
+- `leader_symbols`
+- `nonconfirming_symbols`
+- `polarity_map`
+- `compared_levels`
+- `csd_direction`
+- `iof_direction`
+- `reason_codes`
+
+## Orchestration
+
+`LondresPhase5Engine` extends the stack:
+
+`Weekly -> IOF -> Daily -> H4 -> Time & Price -> Liquidity -> SMT`
+
+The Phase 5 orchestrator reads IOF control from the requested validation timeframe and accepts a deterministic `csd_direction` input. CSD detection itself remains a separate engine so Phase 5 does not invent CSD logic that has not yet been encoded.
