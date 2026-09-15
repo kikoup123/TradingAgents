@@ -49,6 +49,50 @@ class DayType(str, Enum):
     WAITING_FOR_DRAW_STATUS = "WAITING_FOR_DRAW_STATUS"
 
 
+class DailyDelivery(str, Enum):
+    UNRESOLVED = "UNRESOLVED"
+    OLHC = "OLHC"
+    OHLC = "OHLC"
+
+
+class DailyPhase(str, Enum):
+    UNRESOLVED = "UNRESOLVED"
+    OPENING = "OPENING"
+    MANIPULATION = "MANIPULATION"
+    REVERSAL_FORMATION = "REVERSAL_FORMATION"
+    EXPANSION = "EXPANSION"
+    OBJECTIVE_REACHED = "OBJECTIVE_REACHED"
+    RETRACEMENT = "RETRACEMENT"
+    INVALIDATED = "INVALIDATED"
+
+
+class H4ProfileType(str, Enum):
+    UNRESOLVED = "UNRESOLVED"
+    LONDON_REVERSAL = "LONDON_REVERSAL"
+    SIX_AM_CONTINUATION = "SIX_AM_CONTINUATION"
+    SIX_AM_REVERSAL = "SIX_AM_REVERSAL"
+    NY_CONTINUATION = "NY_CONTINUATION"
+    NY_REVERSAL = "NY_REVERSAL"
+
+
+class H4Phase(str, Enum):
+    UNRESOLVED = "UNRESOLVED"
+    PRE_DRIVER = "PRE_DRIVER"
+    DRIVER_CONTINUATION = "DRIVER_CONTINUATION"
+    DRIVER_REVERSAL = "DRIVER_REVERSAL"
+    POST_DRIVER_EXPANSION = "POST_DRIVER_EXPANSION"
+    COMPLETED = "COMPLETED"
+    INVALIDATED = "INVALIDATED"
+
+
+class H4LocationContext(str, Enum):
+    UNKNOWN = "UNKNOWN"
+    IRL = "IRL"
+    ERL_TO_IRL = "ERL_TO_IRL"
+    OPR = "OPR"
+    OB_CONTINUATION = "OB_CONTINUATION"
+
+
 @dataclass
 class OrderFlowRange:
     direction: Direction
@@ -143,6 +187,93 @@ class WeeklyProfileResult:
             "week_phase": self.week_phase,
             "weekly_extreme": self.weekly_extreme.to_dict() if self.weekly_extreme else None,
             "expected_daily_delivery": self.expected_daily_delivery,
+            "expected_next_phase": self.expected_next_phase,
+            "reason_codes": list(self.reason_codes),
+        }
+
+
+@dataclass
+class DailyProfileResult:
+    trading_day: str
+    direction: Direction
+    day_type: DayType
+    expected_delivery: DailyDelivery
+    observed_delivery: DailyDelivery
+    status: ProfileStatus
+    phase: DailyPhase
+    daily_open: float
+    daily_high: float
+    daily_low: float
+    current_close: float
+    high_time: str
+    low_time: str
+    protected_extreme: bool | None
+    expected_next_phase: str | None
+    reason_codes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "trading_day": self.trading_day,
+            "direction": self.direction.value,
+            "day_type": self.day_type.value,
+            "expected_delivery": self.expected_delivery.value,
+            "observed_delivery": self.observed_delivery.value,
+            "status": self.status.value,
+            "phase": self.phase.value,
+            "daily_open": self.daily_open,
+            "daily_high": self.daily_high,
+            "daily_low": self.daily_low,
+            "current_close": self.current_close,
+            "high_time": self.high_time,
+            "low_time": self.low_time,
+            "protected_extreme": self.protected_extreme,
+            "expected_next_phase": self.expected_next_phase,
+            "reason_codes": list(self.reason_codes),
+        }
+
+
+@dataclass
+class H4CandleState:
+    label: str
+    start_time: str
+    end_time: str
+    open: float
+    high: float
+    low: float
+    close: float
+    complete: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class H4ProfileResult:
+    profile: H4ProfileType
+    status: ProfileStatus
+    direction: Direction
+    phase: H4Phase
+    active_h4: str
+    driver_h4: str
+    expected_driver_action: str
+    reversal_before_driver: bool | None
+    location_context: H4LocationContext
+    candles: list[H4CandleState]
+    expected_next_phase: str | None
+    reason_codes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "profile": self.profile.value,
+            "status": self.status.value,
+            "direction": self.direction.value,
+            "phase": self.phase.value,
+            "active_h4": self.active_h4,
+            "driver_h4": self.driver_h4,
+            "expected_driver_action": self.expected_driver_action,
+            "reversal_before_driver": self.reversal_before_driver,
+            "location_context": self.location_context.value,
+            "candles": [item.to_dict() for item in self.candles],
             "expected_next_phase": self.expected_next_phase,
             "reason_codes": list(self.reason_codes),
         }
