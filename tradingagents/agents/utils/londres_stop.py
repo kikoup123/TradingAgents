@@ -83,6 +83,7 @@ def validate_londres_trader_stop(
             "placement": None,
             "reason": "TRADER_CHOSE_HOLD",
             "position_sizing_authority": "DETERMINISTIC_RISK_ENGINE",
+            "manual_position_size_allowed": False,
             "order_authorized": False,
         }
 
