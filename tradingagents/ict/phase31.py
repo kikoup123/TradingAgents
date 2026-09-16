@@ -121,7 +121,7 @@ class Phase31AccountRevalidation:
         payload["venue"] = self.venue.value
         payload["broker_type"] = self.broker_type.value
         payload["status"] = self.status.value
-        payload["account_scope"] = "LIVE_BROKERAGE_ACCOUNTS_ONLY"
+        payload["account_scope"] = "BROKERAGE_ACCOUNTS"
         payload["account_environment"] = "HIDDEN_INTERNAL"
         payload["execution_enabled"] = False
         payload["order_submission_enabled"] = False
@@ -164,7 +164,7 @@ class Phase31RevalidationBatch:
             "order_authorized": self.order_authorized,
             "authorization_authority": "LONDRES_PHASE31_UNIVERSAL_PRE_SUBMIT_FIREWALL",
             "position_policy": "EXACT_PHASE30_VOLUME_NO_SILENT_RESIZING",
-            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
+            "account_scope": "BROKERAGE_ACCOUNTS",
             "account_environment": "HIDDEN_INTERNAL",
             "execution_enabled": False,
             "order_submission_enabled": False,
