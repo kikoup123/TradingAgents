@@ -13,9 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from enum import Enum
-from typing import Any, Iterable
+from typing import Any
 
 from tradingagents.brokers.contracts import (
     OrchestrationPolicy,
