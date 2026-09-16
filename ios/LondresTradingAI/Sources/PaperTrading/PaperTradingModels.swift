@@ -46,7 +46,7 @@ struct PaperTrade: Identifiable, Codable, Hashable, Sendable {
     var realizedR: Double?
     var profitLoss: Double?
 
-    init(signal: LondresSignal) {
+    init(signal: LondresSignal, signaledAt: Date? = nil) {
         precondition(signal.status == .valid)
         precondition(signal.geometry != nil)
 
@@ -56,7 +56,7 @@ struct PaperTrade: Identifiable, Codable, Hashable, Sendable {
         direction = signal.context.direction
         geometry = signal.geometry!
         riskTier = signal.riskTier
-        signaledAt = signal.createdAt
+        self.signaledAt = signaledAt ?? signal.createdAt
         state = .waitingForEntry
     }
 }
