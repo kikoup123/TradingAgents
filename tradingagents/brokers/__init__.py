@@ -62,6 +62,16 @@ from .ninjatrader_futures import (
     ParsedNinjaTraderContract,
     parse_ninjatrader_contract_symbol,
 )
+from .prop_compliance import (
+    FormulaCheck,
+    FormulaCheckStatus,
+    PropFirmComplianceEngine,
+    PropFirmComplianceResult,
+    PropFirmComplianceStatus,
+    PropFirmFormulaAdapter,
+    PropFirmFormulaRegistry,
+    PropFirmLiveMetrics,
+)
 from .prop_risk_telemetry import (
     JsonPropRiskTelemetrySource,
     PropRiskTelemetryPolicy,
@@ -70,6 +80,13 @@ from .prop_risk_telemetry import (
     PropRiskTelemetryStatus,
     PropRiskTelemetryValidationResult,
     PropRiskTelemetryValidator,
+)
+from .prop_rule_cache import (
+    InMemoryPropFirmRuleCache,
+    JsonFilePropFirmRuleCache,
+    PropFirmRuleCache,
+    PropFirmRuleCacheEntry,
+    PropFirmRuleCacheKey,
 )
 from .prop_rule_research import (
     DEFAULT_PROP_FIRM_PROVIDER_RECORDS,
@@ -140,8 +157,12 @@ __all__ = [
     "CTraderUniversalReadOnlyAdapter",
     "DEFAULT_PROP_FIRM_PROVIDER_RECORDS",
     "ExchangeFuturesSpec",
+    "FormulaCheck",
+    "FormulaCheckStatus",
     "FuturesContractResolution",
     "FuturesContractResolutionStatus",
+    "InMemoryPropFirmRuleCache",
+    "JsonFilePropFirmRuleCache",
     "JsonLLMPropFirmRuleExtractor",
     "JsonPropRiskTelemetrySource",
     "NINJATRADER_EQUITY_INDEX_FUTURES",
@@ -153,10 +174,19 @@ __all__ = [
     "NinjaTraderUniversalReadOnlyAdapter",
     "OrchestrationPolicy",
     "ParsedNinjaTraderContract",
+    "PropFirmComplianceEngine",
+    "PropFirmComplianceResult",
+    "PropFirmComplianceStatus",
+    "PropFirmFormulaAdapter",
+    "PropFirmFormulaRegistry",
     "PropFirmIdentityStatus",
+    "PropFirmLiveMetrics",
     "PropFirmProviderRecord",
     "PropFirmProviderRegistry",
     "PropFirmRiskLimits",
+    "PropFirmRuleCache",
+    "PropFirmRuleCacheEntry",
+    "PropFirmRuleCacheKey",
     "PropFirmRuleExtractor",
     "PropFirmRuleResearchEngine",
     "PropFirmRuleResearchRequest",
