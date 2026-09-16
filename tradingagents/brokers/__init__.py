@@ -34,7 +34,18 @@ from .ctrader import (
     CTraderTokenSet,
 )
 from .ctrader_adapter import CTraderUniversalReadOnlyAdapter
+from .ctrader_execution import (
+    CTraderExecutionAdapter,
+    CTraderJsonExecutionTransport,
+    CTraderTradingOAuth,
+)
 from .ctrader_valuation import conservative_loss_conversion_rate, resolve_linear_tick_value
+from .execution import (
+    BrokerExecutionAdapter,
+    BrokerExecutionCapabilities,
+    BrokerExecutionOutcome,
+    BrokerExecutionReceipt,
+)
 from .mt5 import (
     MT5BridgeError,
     MT5DiscoveredAccount,
@@ -42,12 +53,23 @@ from .mt5 import (
     MT5ReadOnlyBridge,
     MT5UniversalReadOnlyAdapter,
 )
+from .mt5_execution import (
+    MT5ExecutionIPCError,
+    MT5FileExecutionTransport,
+    VantageMT5ExecutionAdapter,
+    deterministic_mt5_magic,
+)
 from .ninjatrader import (
     NinjaTraderBridgeError,
     NinjaTraderDiscoveredAccount,
     NinjaTraderJsonBridgeTransport,
     NinjaTraderReadOnlyBridge,
     NinjaTraderUniversalReadOnlyAdapter,
+)
+from .ninjatrader_execution import (
+    NinjaTraderExecutionAdapter,
+    NinjaTraderExecutionIPCError,
+    NinjaTraderFileExecutionTransport,
 )
 from .ninjatrader_futures import (
     NINJATRADER_EQUITY_INDEX_FUTURES,
@@ -76,6 +98,10 @@ __all__ = [
     "BrokerAdapter",
     "BrokerCapabilities",
     "BrokerConnectionSupervisor",
+    "BrokerExecutionAdapter",
+    "BrokerExecutionCapabilities",
+    "BrokerExecutionOutcome",
+    "BrokerExecutionReceipt",
     "BrokerInstrumentSpec",
     "BrokerQuote",
     "BrokerRiskNormalizationResult",
@@ -91,6 +117,8 @@ __all__ = [
     "CTraderConnectionError",
     "CTraderConversionLeg",
     "CTraderEnvironment",
+    "CTraderExecutionAdapter",
+    "CTraderJsonExecutionTransport",
     "CTraderJsonReadOnlyTransport",
     "CTraderOAuthClient",
     "CTraderQuoteSnapshot",
@@ -101,18 +129,24 @@ __all__ = [
     "CTraderSymbolSnapshot",
     "CTraderTickValueSnapshot",
     "CTraderTokenSet",
+    "CTraderTradingOAuth",
     "CTraderUniversalReadOnlyAdapter",
     "ExchangeFuturesSpec",
     "FuturesContractResolution",
     "FuturesContractResolutionStatus",
     "MT5BridgeError",
     "MT5DiscoveredAccount",
+    "MT5ExecutionIPCError",
+    "MT5FileExecutionTransport",
     "MT5JsonBridgeTransport",
     "MT5ReadOnlyBridge",
     "MT5UniversalReadOnlyAdapter",
     "NINJATRADER_EQUITY_INDEX_FUTURES",
     "NinjaTraderBridgeError",
     "NinjaTraderDiscoveredAccount",
+    "NinjaTraderExecutionAdapter",
+    "NinjaTraderExecutionIPCError",
+    "NinjaTraderFileExecutionTransport",
     "NinjaTraderFuturesContractResolver",
     "NinjaTraderJsonBridgeTransport",
     "NinjaTraderReadOnlyBridge",
@@ -121,8 +155,10 @@ __all__ = [
     "ParsedNinjaTraderContract",
     "SymbolMappingError",
     "TradeIntent",
+    "VantageMT5ExecutionAdapter",
     "canonicalize_symbol",
     "conservative_loss_conversion_rate",
+    "deterministic_mt5_magic",
     "parse_ninjatrader_contract_symbol",
     "resolve_linear_tick_value",
 ]
