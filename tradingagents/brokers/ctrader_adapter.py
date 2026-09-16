@@ -90,16 +90,21 @@ class CTraderUniversalReadOnlyAdapter:
     ) -> BrokerInstrumentSpec:
         del account_alias
         snapshot = self._connector.symbol_snapshot(broker_symbol)
+        digits = int(snapshot["digits"])
+        pip_position = int(snapshot["pip_position"])
+        min_volume = int(snapshot["min_volume_protocol"]) / 100.0
+        max_volume = int(snapshot["max_volume_protocol"]) / 100.0
+        step_volume = int(snapshot["step_volume_protocol"]) / 100.0
         return BrokerInstrumentSpec(
             canonical_symbol=canonicalize_symbol(canonical_symbol),
             broker_symbol=str(snapshot["symbol"]),
-            tick_size=float(snapshot["display_tick_size"]),
+            tick_size=10.0 ** (-digits),
             tick_value_account_currency=None,
-            volume_step=float(snapshot["step_volume_units"]),
-            min_volume=float(snapshot["min_volume_units"]),
-            max_volume=float(snapshot["max_volume_units"]),
+            volume_step=step_volume,
+            min_volume=min_volume,
+            max_volume=max_volume,
             volume_unit="units",
-            pip_size=float(snapshot["pip_size"]),
+            pip_size=10.0 ** (-pip_position),
             minimum_stop_distance=None,
             minimum_target_distance=None,
             metadata_verified=True,
