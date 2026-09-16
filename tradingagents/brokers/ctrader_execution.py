@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 from urllib.parse import urlencode
 
 from .contracts import BrokerType
