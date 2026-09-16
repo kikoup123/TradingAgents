@@ -95,6 +95,7 @@ def _phase26_plan(
         "trade_id": "LONDRES-NQ-001",
         "canonical_symbol": "NASDAQ",
         "policy": policy.value,
+        "batch_ready_for_future_execution": True,
         "accounts": list(accounts),
     }
 
