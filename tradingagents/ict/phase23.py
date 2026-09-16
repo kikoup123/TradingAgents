@@ -30,7 +30,7 @@ class LondresPhase23LiveAccountRiskEngine:
     ) -> dict:
         result = self.manager.prepare(intent=intent, accounts=tuple(accounts), policy=policy)
         payload = result.to_dict()
-        payload["phase"] = "LONDRES_PHASE23_LIVE_ACCOUNT_RISK_PREPARATION"
+        payload["phase"] = "LONDRES_PHASE23_ACCOUNT_RISK_PREPARATION"
         payload["risk_base_mode"] = "CURRENT_BROKER_ACCOUNT_EQUITY"
         payload["account_scope"] = "BROKERAGE_ACCOUNTS"
         payload["account_environment"] = "HIDDEN_INTERNAL"
