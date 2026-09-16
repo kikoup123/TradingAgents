@@ -15,8 +15,8 @@ enum PaperAccountPreset: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var displayName: String {
         switch self {
-        case .account1000: return "$1,000 Demo"
-        case .account5000: return "$5,000 Demo"
+        case .account1000: return "$1,000 App Demo"
+        case .account5000: return "$5,000 App Demo"
         }
     }
 }
@@ -93,6 +93,6 @@ struct PaperAccount: Identifiable, Codable, Hashable, Sendable {
 }
 
 struct PaperPerformanceDisclosure: Sendable {
-    static let title = "Simulated / Paper Performance"
-    static let body = "These balances are hypothetical paper accounts driven by validated Londres signals. They are not broker statements, do not guarantee future returns, and may exclude commissions, slippage, latency, financing, and taxes until those execution costs are explicitly modeled."
+    static let title = "Internal App Demo Performance"
+    static let body = "These are internal simulated accounts owned by the app. No brokerage account, broker credentials, broker API, or order-routing connection is used. Validated Londres signals are paper-executed against market-price data to demonstrate entry, risk, stop, target and resulting simulated P&L. Results are hypothetical, are not broker statements, and do not guarantee future returns. Commissions, slippage, latency, financing and taxes are excluded until explicitly modeled."
 }
