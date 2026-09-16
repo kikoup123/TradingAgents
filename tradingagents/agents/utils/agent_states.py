@@ -133,9 +133,17 @@ class AgentState(MessagesState):
         dict,
         "CSD -2/-2.5 target geometry, automatic 60% partial at -2.5 for hold mode, and 40% HTF-liquidity runner",
     ]
+    entry_execution_state: Annotated[
+        dict,
+        "Exact Phase 13 entry event from the first return into the confirmed post-CSD IOF range",
+    ]
+    execution_package_state: Annotated[
+        dict,
+        "Exact entry plus structural stop choices and deterministic CSD target geometry awaiting final executable stop buffer",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> stop/risk -> target-management context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> stop/risk -> target-management -> exact-entry context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
