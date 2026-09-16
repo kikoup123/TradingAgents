@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 import pandas as pd
 
+from .market_data import analysis_time, closed_bars
 from .models import Direction, H4LocationContext
 from .phase4 import LondresPhase4Engine
 from .smt import SMTEngine, SMTGroupConfig
@@ -51,6 +52,21 @@ class LondresPhase5Engine:
         as_of: pd.Timestamp | str | None = None,
         current_price: float | None = None,
     ) -> dict:
+        # Phase 5 must use the same causal prefix on every branch. Without this
+        # boundary, direct Phase 5 calls could let future profile/IOFC or
+        # liquidity observations validate an SMT event at an earlier cutoff.
+        if as_of is not None:
+            as_of = analysis_time(as_of)
+        timeframe_bars = {
+            timeframe: closed_bars(bars, as_of)
+            for timeframe, bars in timeframe_bars.items()
+        }
+        intraday_bars = closed_bars(intraday_bars, as_of)
+        minute_bars = closed_bars(minute_bars, as_of)
+        smt_bars = {
+            symbol: closed_bars(bars, as_of) for symbol, bars in smt_bars.items()
+        }
+
         context = self.phase4.analyze(
             timeframe_bars=timeframe_bars,
             intraday_bars=intraday_bars,
