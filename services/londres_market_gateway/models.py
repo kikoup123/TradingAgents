@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
+UTC = timezone.utc
 FIXED_UTC_MINUS_4 = timezone(timedelta(hours=-4), name="UTC-4")
 SUPPORTED_TIMEFRAMES = frozenset({"M1", "M5", "M15", "H1", "H4", "D", "W"})
 
