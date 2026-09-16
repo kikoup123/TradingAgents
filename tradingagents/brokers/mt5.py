@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -41,17 +41,21 @@ class MT5DiscoveredAccount:
     account_alias: str
     masked_account: str
     provider: str | None
-    server: str | None
     connected: bool
     currency: str
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["account_scope"] = "LIVE_BROKERAGE_ACCOUNTS_ONLY"
-        payload["account_environment"] = "HIDDEN_INTERNAL"
-        payload["read_only"] = True
-        payload["order_submission_enabled"] = False
-        return payload
+        return {
+            "account_alias": self.account_alias,
+            "masked_account": self.masked_account,
+            "provider": self.provider,
+            "connected": self.connected,
+            "currency": self.currency,
+            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
+            "account_environment": "HIDDEN_INTERNAL",
+            "read_only": True,
+            "order_submission_enabled": False,
+        }
 
 
 class MT5JsonBridgeTransport:
@@ -100,7 +104,6 @@ class MT5JsonBridgeTransport:
             "status": str(payload.get("bridge_status") or "UNKNOWN").upper(),
             "provider": "MetaTrader 5 local read-only bridge",
             "broker": terminal.get("company"),
-            "server": terminal.get("server"),
             "read_only": True,
             "order_submission_enabled": False,
         }
@@ -145,7 +148,6 @@ class MT5UniversalReadOnlyAdapter:
             "broker_type": self.broker_type.value,
             "provider": status.get("provider"),
             "broker": status.get("broker"),
-            "server": status.get("server"),
             "status": str(status.get("status") or "UNKNOWN").upper(),
             "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
             "account_environment": "HIDDEN_INTERNAL",
@@ -193,12 +195,10 @@ class MT5UniversalReadOnlyAdapter:
         self._account_alias = alias
         self._account_row = row
         provider = str(row.get("provider") or terminal.get("company") or "").strip() or None
-        server = str(row.get("server") or terminal.get("server") or "").strip() or None
         return MT5DiscoveredAccount(
             account_alias=alias,
             masked_account=masked,
             provider=provider,
-            server=server,
             connected=bool(row.get("connected")),
             currency=currency,
         )
