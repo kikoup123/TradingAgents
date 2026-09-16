@@ -9,13 +9,13 @@ final class PaperTradingStoreTests: XCTestCase {
         XCTAssertEqual(store.accounts.map(\.balance), [1_000, 5_000])
     }
 
-    func testValidatedTwoRWinnerCompoundsBothAccounts() {
+    func testValidatedTwoRWinnerCompoundsBothAccountsOnFiveMinuteCandles() {
         let store = makeStore()
         let signal = makeSignal(entry: 100, stop: 90, target: 120, risk: .conservative)
         store.register(signal: signal)
 
-        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(60), open: 101, high: 105, low: 99, close: 102))
-        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(120), open: 110, high: 121, low: 109, close: 120))
+        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(300), open: 101, high: 105, low: 99, close: 102))
+        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(600), open: 110, high: 121, low: 109, close: 120))
 
         XCTAssertEqual(store.accounts[0].balance, 1_060, accuracy: 0.0001)
         XCTAssertEqual(store.accounts[1].balance, 5_300, accuracy: 0.0001)
@@ -23,30 +23,66 @@ final class PaperTradingStoreTests: XCTestCase {
         XCTAssertEqual(store.accounts[1].trades.first?.realizedR, 2)
     }
 
-    func testStopLossRisksExactlySignalRiskTier() {
+    func testStopLossRisksExactlySignalRiskTierOnFiveMinuteCandles() {
         let store = makeStore()
         let signal = makeSignal(entry: 100, stop: 90, target: 120, risk: .conservative)
         store.register(signal: signal)
 
-        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(60), open: 101, high: 104, low: 99, close: 100))
-        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(120), open: 95, high: 96, low: 89, close: 90))
+        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(300), open: 101, high: 104, low: 99, close: 100))
+        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(600), open: 95, high: 96, low: 89, close: 90))
 
         XCTAssertEqual(store.accounts[0].balance, 970, accuracy: 0.0001)
         XCTAssertEqual(store.accounts[1].balance, 4_850, accuracy: 0.0001)
         XCTAssertEqual(store.accounts[0].trades.first?.realizedR, -1)
     }
 
-    func testSameCandleEntryAndExitIsAmbiguousNotOptimistic() {
+    func testSameFiveMinuteCandleEntryAndExitIsAmbiguousNotOptimistic() {
         let store = makeStore()
         let signal = makeSignal(entry: 100, stop: 90, target: 120, risk: .conservative)
         store.register(signal: signal)
 
-        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(60), open: 100, high: 121, low: 99, close: 115))
+        store.process(candle: candle(time: signal.createdAt.addingTimeInterval(300), open: 100, high: 121, low: 99, close: 115))
 
         XCTAssertEqual(store.accounts[0].balance, 1_000, accuracy: 0.0001)
         XCTAssertEqual(store.accounts[1].balance, 5_000, accuracy: 0.0001)
         XCTAssertEqual(store.accounts[0].trades.first?.state, .ambiguous)
         XCTAssertNil(store.accounts[0].trades.first?.profitLoss)
+    }
+
+    func testNonFiveMinuteCandlesCannotOpenOrClosePaperTrade() {
+        let store = makeStore()
+        let signal = makeSignal(entry: 100, stop: 90, target: 120, risk: .conservative)
+        store.register(signal: signal)
+
+        store.process(
+            candle(
+                time: signal.createdAt.addingTimeInterval(60),
+                open: 100,
+                high: 121,
+                low: 89,
+                close: 110,
+                timeframe: .oneMinute
+            )
+        )
+
+        XCTAssertEqual(store.accounts[0].trades.first?.state, .waitingForEntry)
+        XCTAssertEqual(store.accounts[1].trades.first?.state, .waitingForEntry)
+        XCTAssertEqual(store.accounts[0].balance, 1_000, accuracy: 0.0001)
+        XCTAssertEqual(store.accounts[1].balance, 5_000, accuracy: 0.0001)
+    }
+
+    func testDeterministicEntryTimeAndGeometryPreventDuplicateRegistration() {
+        let store = makeStore()
+        let signal = makeSignal(entry: 100, stop: 90, target: 120, risk: .conservative)
+        let eventTime = signal.createdAt.addingTimeInterval(300)
+
+        store.register(signal: signal, signaledAt: eventTime)
+        let equivalentSignal = makeSignal(entry: 100, stop: 90, target: 120, risk: .conservative)
+        store.register(signal: equivalentSignal, signaledAt: eventTime)
+
+        XCTAssertEqual(store.accounts[0].trades.count, 1)
+        XCTAssertEqual(store.accounts[1].trades.count, 1)
+        XCTAssertEqual(store.accounts[0].trades.first?.signaledAt, eventTime)
     }
 
     private func makeStore() -> PaperTradingStore {
@@ -85,10 +121,17 @@ final class PaperTradingStoreTests: XCTestCase {
         return LondresSignalEngine().evaluate(input, now: now)
     }
 
-    private func candle(time: Date, open: Double, high: Double, low: Double, close: Double) -> MarketCandle {
+    private func candle(
+        time: Date,
+        open: Double,
+        high: Double,
+        low: Double,
+        close: Double,
+        timeframe: LondresTimeframe = .fiveMinute
+    ) -> MarketCandle {
         MarketCandle(
             symbol: "NQ",
-            timeframe: .oneMinute,
+            timeframe: timeframe,
             openTime: time,
             open: open,
             high: high,
