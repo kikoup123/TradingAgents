@@ -37,11 +37,12 @@ def stop_options(*, two=True) -> dict:
     }
 
 
-def test_trader_can_choose_smt_protected_anchor_and_llm_stop_price_is_cleared() -> None:
+def test_trader_can_choose_smt_protected_anchor_and_llm_risk_fields_are_cleared() -> None:
     proposal = LondresTraderProposal(
         action=TraderAction.SELL,
         reasoning="The wider protected swing better fits the current MMXM structure.",
         stop_loss=999.0,
+        position_sizing="25 contracts",
         selected_stop_source=TraderStopSource.SMT_PROTECTED,
         stop_anchor_price=123.0,
     )
@@ -52,7 +53,10 @@ def test_trader_can_choose_smt_protected_anchor_and_llm_stop_price_is_cleared() 
     assert validated.selected_stop_source == TraderStopSource.SMT_PROTECTED
     assert validated.stop_anchor_price == 16.0
     assert validated.stop_loss is None
+    assert validated.position_sizing is None
     assert state["selected_source"] == "SMT_PROTECTED"
+    assert state["manual_position_size_allowed"] is False
+    assert state["position_sizing_authority"] == "DETERMINISTIC_RISK_ENGINE"
     assert state["order_authorized"] is False
 
 
