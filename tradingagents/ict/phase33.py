@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
@@ -1034,6 +1034,8 @@ class LondresPhase33ExactlyOnceBrokerExecutionEngine:
         if not isinstance(raw, dict):
             return None
         payload = dict(raw)
+        payload.pop("account_scope", None)
+        payload.pop("account_environment", None)
         try:
             payload["broker_type"] = BrokerType(str(payload["broker_type"]))
             payload["outcome"] = BrokerExecutionOutcome(str(payload["outcome"]))
