@@ -74,6 +74,7 @@ class Phase28AccountRevalidation:
     phase27_authorization_fingerprint: str | None
     pre_submit_snapshot_fingerprint: str | None
     current_equity: float | None
+    current_executable_price: float | None
     projected_cash_risk: float | None
     projected_equity_risk_fraction: float | None
     quote_bid: float | None
@@ -217,6 +218,8 @@ class LondresPhase28PreSubmitRevalidationEngine:
             reasons.append("PHASE27_CANONICAL_SYMBOL_DOES_NOT_MATCH_INTENT")
         if str(plan.get("direction") or "") != intent.direction:
             reasons.append("PHASE27_DIRECTION_DOES_NOT_MATCH_INTENT")
+        if intent.execution_style != "MARKET_ON_SIGNAL":
+            reasons.append("PHASE28_CURRENTLY_REQUIRES_MARKET_ON_SIGNAL_EXECUTION_STYLE")
         if plan.get("execution_handoff_ready") is not True:
             reasons.append("PHASE27_EXECUTION_HANDOFF_NOT_READY")
         if plan.get("order_authorized") is not True:
@@ -374,29 +377,6 @@ class LondresPhase28PreSubmitRevalidationEngine:
                 quote_timestamp_ms=supervision.quote_timestamp_ms,
             )
 
-        risk_result = self._risk_revalidation(
-            intent=intent,
-            account=account,
-            quantity=quantity,
-            current_equity=current_account.equity,
-            tick_size=instrument.tick_size,
-            tick_value=instrument.tick_value_account_currency,
-            broker_max_volume=instrument.max_volume,
-        )
-        if risk_result["reasons"]:
-            return self._blocked(
-                intent=intent,
-                account=account,
-                status=Phase28AccountStatus.BLOCKED_RISK_REVALIDATION,
-                reasons=tuple(risk_result["reasons"]),
-                current_equity=current_account.equity,
-                projected_cash_risk=risk_result["projected_cash_risk"],
-                projected_equity_risk_fraction=risk_result["projected_equity_risk_fraction"],
-                quote_bid=supervision.quote_bid,
-                quote_ask=supervision.quote_ask,
-                quote_timestamp_ms=supervision.quote_timestamp_ms,
-            )
-
         market_result = self._market_revalidation(
             intent=intent,
             bid=supervision.quote_bid,
@@ -411,8 +391,38 @@ class LondresPhase28PreSubmitRevalidationEngine:
                 status=Phase28AccountStatus.BLOCKED_MARKET_REVALIDATION,
                 reasons=tuple(market_result["reasons"]),
                 current_equity=current_account.equity,
+                current_executable_price=market_result["current_executable_price"],
+                quote_bid=supervision.quote_bid,
+                quote_ask=supervision.quote_ask,
+                quote_timestamp_ms=supervision.quote_timestamp_ms,
+                spread_ticks=market_result["spread_ticks"],
+                adverse_entry_deviation_ticks=market_result[
+                    "adverse_entry_deviation_ticks"
+                ],
+            )
+
+        risk_result = self._risk_revalidation(
+            intent=intent,
+            current_executable_price=float(market_result["current_executable_price"]),
+            account=account,
+            quantity=quantity,
+            current_equity=current_account.equity,
+            tick_size=instrument.tick_size,
+            tick_value=instrument.tick_value_account_currency,
+            broker_max_volume=instrument.max_volume,
+        )
+        if risk_result["reasons"]:
+            return self._blocked(
+                intent=intent,
+                account=account,
+                status=Phase28AccountStatus.BLOCKED_RISK_REVALIDATION,
+                reasons=tuple(risk_result["reasons"]),
+                current_equity=current_account.equity,
+                current_executable_price=market_result["current_executable_price"],
                 projected_cash_risk=risk_result["projected_cash_risk"],
-                projected_equity_risk_fraction=risk_result["projected_equity_risk_fraction"],
+                projected_equity_risk_fraction=risk_result[
+                    "projected_equity_risk_fraction"
+                ],
                 quote_bid=supervision.quote_bid,
                 quote_ask=supervision.quote_ask,
                 quote_timestamp_ms=supervision.quote_timestamp_ms,
@@ -445,8 +455,11 @@ class LondresPhase28PreSubmitRevalidationEngine:
             phase27_authorization_fingerprint=fingerprint,
             pre_submit_snapshot_fingerprint=snapshot_fingerprint,
             current_equity=current_account.equity,
+            current_executable_price=market_result["current_executable_price"],
             projected_cash_risk=risk_result["projected_cash_risk"],
-            projected_equity_risk_fraction=risk_result["projected_equity_risk_fraction"],
+            projected_equity_risk_fraction=risk_result[
+                "projected_equity_risk_fraction"
+            ],
             quote_bid=supervision.quote_bid,
             quote_ask=supervision.quote_ask,
             quote_timestamp_ms=supervision.quote_timestamp_ms,
@@ -460,8 +473,8 @@ class LondresPhase28PreSubmitRevalidationEngine:
                 "PHASE27_AUTHORIZATION_REVERIFIED",
                 "ACTIVE_CONTRACT_REVERIFIED",
                 "CURRENT_ACCOUNT_AND_QUOTE_SUPERVISION_HEALTHY",
-                "CURRENT_EQUITY_RISK_REVALIDATED",
-                "SPREAD_AND_ADVERSE_ENTRY_DEVIATION_WITHIN_EXPLICIT_LIMITS",
+                "CURRENT_EXECUTABLE_PRICE_WITHIN_MARKET_QUALITY_LIMITS",
+                "CURRENT_EQUITY_RISK_REVALIDATED_AT_EXECUTABLE_QUOTE",
                 "READY_FOR_FUTURE_SUBMISSION_ADAPTER_HANDOFF",
                 "PHASE28_DOES_NOT_CONSUME_OR_SUBMIT_THE_AUTHORIZATION",
             ),
@@ -471,6 +484,7 @@ class LondresPhase28PreSubmitRevalidationEngine:
     def _risk_revalidation(
         *,
         intent: TradeIntent,
+        current_executable_price: float,
         account: dict[str, Any],
         quantity: int,
         current_equity: float,
@@ -515,7 +529,7 @@ class LondresPhase28PreSubmitRevalidationEngine:
                 "reasons": reasons,
             }
 
-        stop_distance = abs(intent.entry_price - intent.stop_price)
+        stop_distance = abs(current_executable_price - intent.stop_price)
         risk_per_contract = (stop_distance / tick_size) * float(tick_value)
         projected_cash_risk = risk_per_contract * quantity
         projected_fraction = projected_cash_risk / current_equity
@@ -552,6 +566,7 @@ class LondresPhase28PreSubmitRevalidationEngine:
         reasons: list[str] = []
         if bid is None or ask is None:
             return {
+                "current_executable_price": None,
                 "spread_ticks": None,
                 "adverse_entry_deviation_ticks": None,
                 "reasons": ["COMPLETE_CURRENT_BID_ASK_REQUIRED"],
@@ -564,6 +579,7 @@ class LondresPhase28PreSubmitRevalidationEngine:
             or ask_value < bid_value
         ):
             return {
+                "current_executable_price": None,
                 "spread_ticks": None,
                 "adverse_entry_deviation_ticks": None,
                 "reasons": ["VALID_NON_CROSSED_CURRENT_BID_ASK_REQUIRED"],
@@ -586,6 +602,7 @@ class LondresPhase28PreSubmitRevalidationEngine:
             reasons.append("CURRENT_EXECUTABLE_QUOTE_ALREADY_OUTSIDE_TRADE_GEOMETRY")
 
         return {
+            "current_executable_price": executable_quote,
             "spread_ticks": spread_ticks,
             "adverse_entry_deviation_ticks": adverse,
             "reasons": reasons,
@@ -599,6 +616,7 @@ class LondresPhase28PreSubmitRevalidationEngine:
         status: Phase28AccountStatus,
         reasons: tuple[str, ...],
         current_equity: float | None = None,
+        current_executable_price: float | None = None,
         projected_cash_risk: float | None = None,
         projected_equity_risk_fraction: float | None = None,
         quote_bid: float | None = None,
@@ -623,6 +641,7 @@ class LondresPhase28PreSubmitRevalidationEngine:
             phase27_authorization_fingerprint=fingerprint,
             pre_submit_snapshot_fingerprint=None,
             current_equity=current_equity,
+            current_executable_price=current_executable_price,
             projected_cash_risk=projected_cash_risk,
             projected_equity_risk_fraction=projected_equity_risk_fraction,
             quote_bid=quote_bid,
@@ -637,7 +656,9 @@ class LondresPhase28PreSubmitRevalidationEngine:
 
     @staticmethod
     def _valid_fingerprint(value: str) -> bool:
-        return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+        return len(value) == 64 and all(
+            character in "0123456789abcdef" for character in value
+        )
 
     @staticmethod
     def _positive_integer(value: Any) -> int | None:
@@ -709,8 +730,7 @@ class LondresPhase28PreSubmitRevalidationEngine:
         global_reasons: tuple[str, ...],
     ) -> Phase28RevalidationBatch:
         skipped = sum(
-            item.status is Phase28AccountStatus.SKIPPED_DISABLED
-            for item in plans
+            item.status is Phase28AccountStatus.SKIPPED_DISABLED for item in plans
         )
         enabled = len(plans) - skipped
         ready_count = sum(item.pre_submit_ready for item in plans)
@@ -727,7 +747,9 @@ class LondresPhase28PreSubmitRevalidationEngine:
         elif policy is OrchestrationPolicy.ALL_OR_NONE and blocked:
             status = MultiAccountBatchStatus.BLOCKED
             batch_ready = False
-            reasons = ("ALL_OR_NONE_REQUIRES_EVERY_ENABLED_ACCOUNT_TO_PASS_PHASE28",)
+            reasons = (
+                "ALL_OR_NONE_REQUIRES_EVERY_ENABLED_ACCOUNT_TO_PASS_PHASE28",
+            )
             plans = tuple(
                 LondresPhase28PreSubmitRevalidationEngine._revoke_for_batch_policy(item)
                 if item.pre_submit_ready
