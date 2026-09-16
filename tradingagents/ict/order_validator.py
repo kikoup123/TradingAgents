@@ -1,7 +1,7 @@
 """Hard deterministic pre-broker validator for Londres trade packages.
 
 This is the final fail-closed firewall before a future broker adapter may
-receive an order request.  It does not place orders and does not contain broker
+receive an order request. It does not place orders and does not contain broker
 credentials or account-environment information.
 """
 
@@ -66,9 +66,9 @@ class PreBrokerValidationResult:
 class HardPreBrokerOrderValidator:
     """Validate the complete deterministic Londres order contract.
 
-    A package is authorized only when all prior deterministic layers agree.
-    Authorization here means "eligible to be handed to a future broker adapter";
-    this module never submits, modifies or closes a broker order itself.
+    Authorization means only that the package is eligible for handoff to a
+    future broker adapter. This module never submits, modifies, or closes an
+    order itself.
     """
 
     _MANAGEMENT_WAIT_STATES = {
@@ -100,7 +100,12 @@ class HardPreBrokerOrderValidator:
         management = break_even_management or {}
         selection = trader_selection or {}
 
-        direction = str(entry_state.get("direction") or calculation.get("direction") or "UNCONFIRMED")
+        direction = str(
+            entry_state.get("direction")
+            or calculation.get("direction")
+            or "UNCONFIRMED"
+        )
+        symbol = calculation.get("symbol")
         entry = self._float_or_none(entry_state.get("exact_entry_price"))
         original_stop = self._float_or_none(stop_state.get("executable_stop_price"))
         current_stop = self._float_or_none(management.get("current_stop_price"))
@@ -112,55 +117,51 @@ class HardPreBrokerOrderValidator:
             calculation.get("projected_equity_risk_fraction")
         )
         equity = self._float_or_none(account_equity)
-        symbol = calculation.get("symbol")
+
+        common = {
+            "direction": direction,
+            "symbol": symbol,
+            "entry_price": entry,
+            "original_stop_price": original_stop,
+            "current_stop_price": current_stop,
+            "selected_risk_fraction": selected_risk,
+            "selected_exit_mode": selected_exit_mode,
+            "position_volume": position_volume,
+            "projected_cash_risk": projected_cash_risk,
+            "projected_equity_risk_fraction": projected_fraction,
+            "account_equity": equity,
+        }
 
         if entry_state.get("status") != "ENTRY_TRIGGERED" or entry is None:
             return self._fail(
                 PreBrokerValidationStatus.WAIT_FOR_ENTRY,
-                direction=direction,
-                symbol=symbol,
                 reason="EXACT_PHASE13_ENTRY_REQUIRED",
+                **common,
             )
-
         if stop_state.get("status") != "READY" or original_stop is None:
             return self._fail(
                 PreBrokerValidationStatus.WAIT_FOR_EXECUTABLE_STOP,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
                 reason="READY_PHASE14_EXECUTABLE_STOP_REQUIRED",
+                **common,
             )
-
         if calculation.get("status") != "READY":
             return self._fail(
                 PreBrokerValidationStatus.WAIT_FOR_TRADE_CALCULATION,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
                 reason="READY_PHASE15_TRADE_CALCULATION_REQUIRED",
+                **common,
             )
-
         management_status = management.get("status")
-        if management_status == "WAIT_FOR_ACTIVE_TRADE" or management_status is None:
+        if management_status in {None, "WAIT_FOR_ACTIVE_TRADE"}:
             return self._fail(
                 PreBrokerValidationStatus.WAIT_FOR_MANAGEMENT_STATE,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
                 reason="VALID_PHASE16_MANAGEMENT_STATE_REQUIRED",
+                **common,
             )
-
         if not selection.get("valid"):
             return self._fail(
                 PreBrokerValidationStatus.INVALID_TRADER_SELECTION,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
                 reason="HARD_VALIDATED_TRADER_STOP_RISK_TARGET_SELECTION_REQUIRED",
+                **common,
             )
 
         directions = {
@@ -176,12 +177,8 @@ class HardPreBrokerOrderValidator:
         if direction not in {"BULLISH", "BEARISH"} or len(directions) != 1:
             return self._fail(
                 PreBrokerValidationStatus.DIRECTION_MISMATCH,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
                 reason="ENTRY_STOP_CALCULATION_AND_MANAGEMENT_DIRECTION_MUST_MATCH",
+                **common,
             )
 
         entry_values = (
@@ -193,12 +190,8 @@ class HardPreBrokerOrderValidator:
         if any(value is None for value in entry_values) or not self._all_close(entry_values):
             return self._fail(
                 PreBrokerValidationStatus.ENTRY_GEOMETRY_MISMATCH,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
                 reason="ALL_PHASES_MUST_REFERENCE_THE_SAME_EXACT_ENTRY_PRICE",
+                **common,
             )
 
         stop_values = (
@@ -209,75 +202,54 @@ class HardPreBrokerOrderValidator:
         if any(value is None for value in stop_values) or not self._all_close(stop_values):
             return self._fail(
                 PreBrokerValidationStatus.STOP_GEOMETRY_MISMATCH,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
                 reason="ORIGINAL_EXECUTABLE_STOP_MUST_REMAIN_IDENTICAL_ACROSS_PHASES",
+                **common,
             )
-
-        if direction == "BEARISH" and original_stop <= entry:
-            return self._stop_geometry_failure(direction, symbol, entry, original_stop, current_stop)
-        if direction == "BULLISH" and original_stop >= entry:
-            return self._stop_geometry_failure(direction, symbol, entry, original_stop, current_stop)
+        if (direction == "BEARISH" and original_stop <= entry) or (
+            direction == "BULLISH" and original_stop >= entry
+        ):
+            return self._fail(
+                PreBrokerValidationStatus.STOP_GEOMETRY_MISMATCH,
+                reason="ORIGINAL_EXECUTABLE_STOP_MUST_BE_BEYOND_ENTRY_IN_INVALIDATION_DIRECTION",
+                **common,
+            )
 
         if selection.get("selected_source") != stop_state.get("selected_stop_source"):
             return self._fail(
                 PreBrokerValidationStatus.STOP_GEOMETRY_MISMATCH,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
                 reason="EXECUTABLE_STOP_SOURCE_MUST_MATCH_HARD_VALIDATED_TRADER_STOP_SOURCE",
+                **common,
             )
         selected_anchor = self._float_or_none(selection.get("selected_anchor_price"))
         stop_anchor = self._float_or_none(stop_state.get("structural_anchor_price"))
-        if selected_anchor is None or stop_anchor is None or not math.isclose(
-            selected_anchor, stop_anchor, rel_tol=0.0, abs_tol=1e-9
+        if (
+            selected_anchor is None
+            or stop_anchor is None
+            or not math.isclose(selected_anchor, stop_anchor, rel_tol=0.0, abs_tol=1e-9)
         ):
             return self._fail(
                 PreBrokerValidationStatus.STOP_GEOMETRY_MISMATCH,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
                 reason="EXECUTABLE_STOP_ANCHOR_MUST_MATCH_SELECTED_STRUCTURAL_ANCHOR",
+                **common,
             )
 
-        if instrument is None or symbol is None or symbol != instrument.symbol:
-            return self._fail(
-                PreBrokerValidationStatus.SYMBOL_MISMATCH,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
-                reason="PHASE15_SYMBOL_MUST_MATCH_BROKER_INSTRUMENT_SPEC",
-            )
         risk_sizing = calculation.get("risk_sizing") or {}
-        if risk_sizing.get("symbol") != instrument.symbol:
+        if (
+            instrument is None
+            or symbol is None
+            or symbol != instrument.symbol
+            or risk_sizing.get("symbol") != instrument.symbol
+        ):
             return self._fail(
                 PreBrokerValidationStatus.SYMBOL_MISMATCH,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
-                reason="RISK_SIZING_SYMBOL_MUST_MATCH_BROKER_INSTRUMENT_SPEC",
+                reason="CALCULATION_AND_RISK_SIZING_SYMBOLS_MUST_MATCH_BROKER_INSTRUMENT",
+                **common,
             )
-
         if equity is None or equity <= 0:
             return self._fail(
                 PreBrokerValidationStatus.ACCOUNT_POLICY_VIOLATION,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
                 reason="POSITIVE_ACCOUNT_EQUITY_REQUIRED",
+                **common,
             )
 
         selection_risk = self._float_or_none(selection.get("selected_risk_fraction"))
@@ -290,13 +262,8 @@ class HardPreBrokerOrderValidator:
         ):
             return self._fail(
                 PreBrokerValidationStatus.RISK_POLICY_VIOLATION,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
-                selected_risk_fraction=selected_risk,
                 reason="RISK_MUST_EQUAL_HARD_VALIDATED_3_5_OR_10_PERCENT_TIER",
+                **common,
             )
 
         if (
@@ -308,67 +275,41 @@ class HardPreBrokerOrderValidator:
         ):
             return self._fail(
                 PreBrokerValidationStatus.VOLUME_POLICY_VIOLATION,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
-                selected_risk_fraction=selected_risk,
-                position_volume=position_volume,
                 reason="POSITION_VOLUME_MUST_BE_POSITIVE_AND_ON_BROKER_VOLUME_GRID",
+                **common,
             )
-
         sized_volume = self._float_or_none(risk_sizing.get("final_volume"))
-        if risk_sizing.get("status") != "READY" or sized_volume is None or not math.isclose(
-            position_volume, sized_volume, rel_tol=0.0, abs_tol=1e-9
+        if (
+            risk_sizing.get("status") != "READY"
+            or sized_volume is None
+            or not math.isclose(position_volume, sized_volume, rel_tol=0.0, abs_tol=1e-9)
         ):
             return self._fail(
                 PreBrokerValidationStatus.VOLUME_POLICY_VIOLATION,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
-                selected_risk_fraction=selected_risk,
-                position_volume=position_volume,
                 reason="POSITION_VOLUME_MUST_EQUAL_DETERMINISTIC_RISK_ENGINE_OUTPUT",
+                **common,
             )
 
         if projected_cash_risk is None or projected_fraction is None:
-            return self._risk_failure(
-                direction,
-                symbol,
-                entry,
-                original_stop,
-                current_stop,
-                selected_risk,
-                position_volume,
-                "PROJECTED_CASH_AND_EQUITY_RISK_REQUIRED",
+            return self._fail(
+                PreBrokerValidationStatus.RISK_POLICY_VIOLATION,
+                reason="PROJECTED_CASH_AND_EQUITY_RISK_REQUIRED",
+                **common,
             )
         expected_fraction = projected_cash_risk / equity
         if not math.isclose(projected_fraction, expected_fraction, rel_tol=0.0, abs_tol=1e-9):
-            return self._risk_failure(
-                direction,
-                symbol,
-                entry,
-                original_stop,
-                current_stop,
-                selected_risk,
-                position_volume,
-                "PROJECTED_EQUITY_RISK_MUST_EQUAL_PROJECTED_CASH_RISK_OVER_EQUITY",
+            return self._fail(
+                PreBrokerValidationStatus.RISK_POLICY_VIOLATION,
+                reason="PROJECTED_EQUITY_RISK_MUST_EQUAL_PROJECTED_CASH_RISK_OVER_EQUITY",
+                **common,
             )
         risk_budget = equity * selected_risk
         if max_risk_cash is not None:
             if max_risk_cash <= 0:
-                return self._risk_failure(
-                    direction,
-                    symbol,
-                    entry,
-                    original_stop,
-                    current_stop,
-                    selected_risk,
-                    position_volume,
-                    "MAX_RISK_CASH_MUST_BE_POSITIVE_WHEN_SUPPLIED",
+                return self._fail(
+                    PreBrokerValidationStatus.RISK_POLICY_VIOLATION,
+                    reason="MAX_RISK_CASH_MUST_BE_POSITIVE_WHEN_SUPPLIED",
+                    **common,
                 )
             risk_budget = min(risk_budget, float(max_risk_cash))
         if (
@@ -376,15 +317,10 @@ class HardPreBrokerOrderValidator:
             or projected_fraction > selected_risk + 1e-12
             or projected_fraction > MAX_ACCOUNT_RISK_FRACTION + 1e-12
         ):
-            return self._risk_failure(
-                direction,
-                symbol,
-                entry,
-                original_stop,
-                current_stop,
-                selected_risk,
-                position_volume,
-                "PROJECTED_LOSS_EXCEEDS_SELECTED_RISK_BUDGET_OR_10_PERCENT_HARD_CEILING",
+            return self._fail(
+                PreBrokerValidationStatus.RISK_POLICY_VIOLATION,
+                reason="PROJECTED_LOSS_EXCEEDS_SELECTED_RISK_BUDGET_OR_10_PERCENT_HARD_CEILING",
+                **common,
             )
 
         target_failure = self._validate_target_contract(
@@ -398,18 +334,8 @@ class HardPreBrokerOrderValidator:
         if target_failure is not None:
             return self._fail(
                 PreBrokerValidationStatus.TARGET_CONTRACT_VIOLATION,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
-                selected_risk_fraction=selected_risk,
-                selected_exit_mode=selected_exit_mode,
-                position_volume=position_volume,
-                projected_cash_risk=projected_cash_risk,
-                projected_equity_risk_fraction=projected_fraction,
-                account_equity=equity,
                 reason=target_failure,
+                **common,
             )
 
         management_failure = self._validate_break_even_contract(
@@ -421,18 +347,8 @@ class HardPreBrokerOrderValidator:
         if management_failure is not None:
             return self._fail(
                 PreBrokerValidationStatus.BREAK_EVEN_POLICY_VIOLATION,
-                direction=direction,
-                symbol=symbol,
-                entry_price=entry,
-                original_stop_price=original_stop,
-                current_stop_price=current_stop,
-                selected_risk_fraction=selected_risk,
-                selected_exit_mode=selected_exit_mode,
-                position_volume=position_volume,
-                projected_cash_risk=projected_cash_risk,
-                projected_equity_risk_fraction=projected_fraction,
-                account_equity=equity,
                 reason=management_failure,
+                **common,
             )
 
         return PreBrokerValidationResult(
@@ -483,8 +399,10 @@ class HardPreBrokerOrderValidator:
         target_price = self._float_or_none(calculation.get("selected_target_price"))
         selected_sd = target_selection.get("selected_sd_target") or {}
         selected_sd_price = self._float_or_none(selected_sd.get("price"))
-        if target_price is None or selected_sd_price is None or not math.isclose(
-            target_price, selected_sd_price, rel_tol=0.0, abs_tol=1e-9
+        if (
+            target_price is None
+            or selected_sd_price is None
+            or not math.isclose(target_price, selected_sd_price, rel_tol=0.0, abs_tol=1e-9)
         ):
             return "SELECTED_TARGET_PRICE_MUST_MATCH_DETERMINISTIC_CSD_SD_TARGET"
         if direction == "BEARISH" and target_price >= entry_price:
@@ -516,6 +434,13 @@ class HardPreBrokerOrderValidator:
             or runner_target is None
         ):
             return "HOLD_MODE_REQUIRES_EXACT_60_40_BROKER_EXECUTABLE_CONTRACT"
+
+        expected_partial = position_volume * 0.60
+        expected_runner = position_volume * 0.40
+        if not math.isclose(partial_volume, expected_partial, rel_tol=0.0, abs_tol=1e-9):
+            return "HOLD_PARTIAL_VOLUME_MUST_EQUAL_EXACTLY_60_PERCENT_OF_POSITION"
+        if not math.isclose(runner_volume, expected_runner, rel_tol=0.0, abs_tol=1e-9):
+            return "HOLD_RUNNER_VOLUME_MUST_EQUAL_EXACTLY_40_PERCENT_OF_POSITION"
         if not math.isclose(
             partial_volume + runner_volume, position_volume, rel_tol=0.0, abs_tol=1e-9
         ):
@@ -524,7 +449,10 @@ class HardPreBrokerOrderValidator:
             runner_volume, instrument.volume_step
         ):
             return "HOLD_PARTIAL_AND_RUNNER_VOLUMES_MUST_BE_ON_BROKER_GRID"
-        if partial_volume + 1e-12 < instrument.min_volume or runner_volume + 1e-12 < instrument.min_volume:
+        if (
+            partial_volume + 1e-12 < instrument.min_volume
+            or runner_volume + 1e-12 < instrument.min_volume
+        ):
             return "HOLD_PARTIAL_AND_RUNNER_MUST_EACH_MEET_BROKER_MINIMUM_VOLUME"
         if direction == "BEARISH" and not (runner_target < partial_target < entry_price):
             return "BEARISH_RUNNER_TARGET_MUST_BE_BEYOND_SD_2_5_PARTIAL"
@@ -563,35 +491,33 @@ class HardPreBrokerOrderValidator:
             management.get("original_projected_equity_risk_fraction")
         )
         original_rr = self._float_or_none(management.get("original_risk_reward_ratio"))
+        calculated_cash = self._float_or_none(calculation.get("projected_cash_risk"))
+        calculated_fraction = self._float_or_none(
+            calculation.get("projected_equity_risk_fraction")
+        )
+        calculated_rr = self._float_or_none(calculation.get("risk_reward_ratio"))
         if (
             original_cash is None
             or original_fraction is None
             or original_rr is None
+            or calculated_cash is None
+            or calculated_fraction is None
+            or calculated_rr is None
+            or not math.isclose(original_cash, calculated_cash, rel_tol=0.0, abs_tol=1e-9)
             or not math.isclose(
-                original_cash,
-                float(calculation["projected_cash_risk"]),
-                rel_tol=0.0,
-                abs_tol=1e-9,
+                original_fraction, calculated_fraction, rel_tol=0.0, abs_tol=1e-12
             )
-            or not math.isclose(
-                original_fraction,
-                float(calculation["projected_equity_risk_fraction"]),
-                rel_tol=0.0,
-                abs_tol=1e-12,
-            )
-            or not math.isclose(
-                original_rr,
-                float(calculation["risk_reward_ratio"]),
-                rel_tol=0.0,
-                abs_tol=1e-9,
-            )
+            or not math.isclose(original_rr, calculated_rr, rel_tol=0.0, abs_tol=1e-9)
         ):
             return "ORIGINAL_STOP_RISK_AND_RR_ANALYTICS_MUST_REMAIN_IMMUTABLE_AFTER_MANAGEMENT"
         return None
 
     @staticmethod
     def _is_allowed_risk(value: float) -> bool:
-        return any(math.isclose(value, allowed, abs_tol=1e-12) for allowed in ALLOWED_RISK_FRACTIONS)
+        return any(
+            math.isclose(value, allowed, abs_tol=1e-12)
+            for allowed in ALLOWED_RISK_FRACTIONS
+        )
 
     @staticmethod
     def _on_grid(value: float, step: float) -> bool:
@@ -609,47 +535,6 @@ class HardPreBrokerOrderValidator:
     @staticmethod
     def _float_or_none(value: Any) -> float | None:
         return None if value is None else float(value)
-
-    def _stop_geometry_failure(
-        self,
-        direction: str,
-        symbol: str | None,
-        entry: float,
-        original_stop: float,
-        current_stop: float | None,
-    ) -> PreBrokerValidationResult:
-        return self._fail(
-            PreBrokerValidationStatus.STOP_GEOMETRY_MISMATCH,
-            direction=direction,
-            symbol=symbol,
-            entry_price=entry,
-            original_stop_price=original_stop,
-            current_stop_price=current_stop,
-            reason="ORIGINAL_EXECUTABLE_STOP_MUST_BE_BEYOND_ENTRY_IN_INVALIDATION_DIRECTION",
-        )
-
-    def _risk_failure(
-        self,
-        direction: str,
-        symbol: str | None,
-        entry: float,
-        original_stop: float,
-        current_stop: float | None,
-        selected_risk: float,
-        position_volume: float,
-        reason: str,
-    ) -> PreBrokerValidationResult:
-        return self._fail(
-            PreBrokerValidationStatus.RISK_POLICY_VIOLATION,
-            direction=direction,
-            symbol=symbol,
-            entry_price=entry,
-            original_stop_price=original_stop,
-            current_stop_price=current_stop,
-            selected_risk_fraction=selected_risk,
-            position_volume=position_volume,
-            reason=reason,
-        )
 
     @staticmethod
     def _fail(
