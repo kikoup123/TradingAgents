@@ -1,4 +1,4 @@
-"""Phase 24: NinjaTrader read-only discovery, rollover and live-account preparation."""
+"""Phase 24: NinjaTrader read-only discovery, rollover and account preparation."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class Phase24AccountStatus(str, Enum):
 
 @dataclass(frozen=True)
 class NinjaTraderAccountBinding:
-    """Private binding for one live NinjaTrader brokerage account."""
+    """Private binding for one NinjaTrader brokerage account."""
 
     account_alias: str
     root_map: dict[str, str]
@@ -82,7 +82,7 @@ class Phase24AccountPlan:
         payload = asdict(self)
         payload["status"] = self.status.value
         payload["account_environment"] = "HIDDEN_INTERNAL"
-        payload["account_scope"] = "LIVE_BROKERAGE_ACCOUNTS_ONLY"
+        payload["account_scope"] = "BROKERAGE_ACCOUNTS"
         payload["read_only"] = True
         payload["order_submission_enabled"] = False
         payload["order_authorized"] = False
@@ -121,7 +121,7 @@ class Phase24MultiAccountPlan:
             "platform": "NINJATRADER",
             "replication_mode": "ONE_TRADE_INTENT_PER_ACCOUNT_INDEPENDENT_EQUITY_RISK_AND_CONTRACT_PLAN",
             "risk_base_mode": "CURRENT_BROKER_ACCOUNT_EQUITY",
-            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
+            "account_scope": "BROKERAGE_ACCOUNTS",
             "account_environment": "HIDDEN_INTERNAL",
             "read_only": True,
             "execution_enabled": False,
@@ -133,7 +133,7 @@ class Phase24MultiAccountPlan:
 
 
 class LondresPhase24NinjaTraderReadOnlyEngine:
-    """Prepare live NinjaTrader accounts from verified local read-only data."""
+    """Prepare NinjaTrader accounts from verified local read-only data."""
 
     def __init__(self, adapter: NinjaTraderUniversalReadOnlyAdapter) -> None:
         self.adapter = adapter
@@ -147,7 +147,7 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
             "platform": "NINJATRADER",
             "bridge": self.adapter.bridge_metadata(),
             "accounts": [account.to_dict() for account in accounts],
-            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
+            "account_scope": "BROKERAGE_ACCOUNTS",
             "account_environment": "HIDDEN_INTERNAL",
             "read_only": True,
             "execution_enabled": False,
@@ -184,33 +184,33 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
         if enabled == 0:
             status = MultiAccountBatchStatus.NO_ENABLED_ACCOUNTS
             batch_ready = False
-            reasons = ("NO_ENABLED_NINJATRADER_LIVE_ACCOUNTS",)
+            reasons = ("NO_ENABLED_NINJATRADER_BROKERAGE_ACCOUNTS",)
         elif policy is OrchestrationPolicy.ALL_OR_NONE:
             batch_ready = ready == enabled
             status = MultiAccountBatchStatus.READY if batch_ready else MultiAccountBatchStatus.BLOCKED
             reasons = (
-                "ALL_OR_NONE_REQUIRES_EVERY_NINJATRADER_LIVE_ACCOUNT_TO_PASS_PHASE24",
+                "ALL_OR_NONE_REQUIRES_EVERY_NINJATRADER_ACCOUNT_TO_PASS_PHASE24",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             )
         elif ready == enabled:
             status = MultiAccountBatchStatus.READY
             batch_ready = True
             reasons = (
-                "ALL_ENABLED_NINJATRADER_LIVE_ACCOUNTS_PREPARED_INDEPENDENTLY",
+                "ALL_ENABLED_NINJATRADER_ACCOUNTS_PREPARED_INDEPENDENTLY",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             )
         elif ready > 0:
             status = MultiAccountBatchStatus.PARTIAL_READY
             batch_ready = True
             reasons = (
-                "BEST_EFFORT_ISOLATES_BLOCKED_NINJATRADER_LIVE_ACCOUNTS",
+                "BEST_EFFORT_ISOLATES_BLOCKED_NINJATRADER_ACCOUNTS",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             )
         else:
             status = MultiAccountBatchStatus.BLOCKED
             batch_ready = False
             reasons = (
-                "NO_NINJATRADER_LIVE_ACCOUNT_PASSED_PHASE24_PREPARATION",
+                "NO_NINJATRADER_ACCOUNT_PASSED_PHASE24_PREPARATION",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             )
 
@@ -230,7 +230,7 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
             reason_codes=reasons,
         )
         payload = result.to_dict()
-        payload["phase"] = "LONDRES_PHASE24_NINJATRADER_LIVE_ACCOUNT_READ_ONLY_PREPARATION"
+        payload["phase"] = "LONDRES_PHASE24_NINJATRADER_BROKERAGE_ACCOUNT_READ_ONLY_PREPARATION"
         payload["bridge"] = self.adapter.bridge_metadata()
         return payload
 
@@ -354,7 +354,7 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
                 active_contract=contract.active_contract,
                 supervision_state=supervision_state,
                 phase23_account_plan=phase23_account,
-                reason="PHASE23_LIVE_ACCOUNT_EQUITY_RISK_PREPARATION_BLOCKED",
+                reason="PHASE23_ACCOUNT_EQUITY_RISK_PREPARATION_BLOCKED",
             )
 
         return Phase24AccountPlan(
@@ -373,7 +373,7 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
             reason_codes=(
                 *contract.reason_codes,
                 "NINJATRADER_ACCOUNT_DATA_PASSED_PHASE22_SUPERVISION",
-                "PHASE23_LIVE_ACCOUNT_EQUITY_RISK_BASE_APPLIED",
+                "PHASE23_ACCOUNT_EQUITY_RISK_BASE_APPLIED",
                 "RAW_CONTRACT_COUNT_NOT_COPIED_BETWEEN_ACCOUNTS",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             ),
