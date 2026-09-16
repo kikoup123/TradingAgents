@@ -12,17 +12,23 @@ final class AppModel: ObservableObject {
     let strategyPipeline = LondresStrategyPipeline()
     let performanceAnalyzer = LondresPerformanceAnalyzer()
     let aiService: any LondresAIService
+    let marketDataCoordinator: LondresMarketDataCoordinator
 
     private var emittedStrategyKeys = Set<String>()
 
     init(
         signals: [LondresSignal] = [],
         localization: LocalizationPreferences = .default,
-        aiService: any LondresAIService = DeterministicExplanationService()
+        aiService: any LondresAIService = DeterministicExplanationService(),
+        marketDataCoordinator: LondresMarketDataCoordinator? = nil
     ) {
         self.localization = localization
         self.aiService = aiService
         self.signals = signals
+        self.marketDataCoordinator = marketDataCoordinator
+            ?? LondresMarketDataCoordinator(
+                runtimeConfiguration: MarketDataGatewayConfiguration.fromRuntime()
+            )
     }
 
     func evaluate(_ input: LondresSignalInput) {
@@ -70,6 +76,23 @@ final class AppModel: ObservableObject {
         where candle.timeframe == .fiveMinute {
             paperTradingStore.process(candle: candle)
         }
+    }
+
+    func startMarketData(
+        paperTradingStore: PaperTradingStore,
+        plan: LondresMarketFeedPlan = .nq,
+        refreshInterval: TimeInterval = 30
+    ) {
+        marketDataCoordinator.start(
+            plan: plan,
+            appModel: self,
+            paperTradingStore: paperTradingStore,
+            refreshInterval: refreshInterval
+        )
+    }
+
+    func stopMarketData() {
+        marketDataCoordinator.stop()
     }
 
     private func strategyKey(signal: LondresSignal, result: LondresStrategyResult) -> String {
