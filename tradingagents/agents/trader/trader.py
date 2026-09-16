@@ -45,6 +45,7 @@ def create_trader(llm):
         stop_options = state.get("stop_options_state") or {}
         trade_plan = state.get("trade_plan_state") or {}
         target_management = state.get("target_management_state") or {}
+        entry_execution = state.get("entry_execution_state")
         use_londres_stop_gate = bool(stop_options.get("selection_required"))
 
         if market_report:
@@ -87,8 +88,19 @@ def create_trader(llm):
                     f"runner to {runner.get('side')} {runner.get('price')} on "
                     f"{runner.get('timeframe')}"
                 )
+
+            entry_lines = ""
+            if entry_execution is not None:
+                entry_lines = (
+                    f"Phase 13 entry status: {entry_execution.get('status')}\n"
+                    f"Deterministic exact entry: {entry_execution.get('exact_entry_price')}\n"
+                    f"Entry rule: {entry_execution.get('entry_rule')}\n"
+                )
+
             stop_section = (
-                "Londres deterministic stop options:\n"
+                "Londres deterministic execution context:\n"
+                + entry_lines
+                + "Londres deterministic stop options:\n"
                 + "\n".join(candidate_lines)
                 + "\n"
                 + f"Londres direction: {stop_options.get('direction')}\n"
@@ -99,23 +111,27 @@ def create_trader(llm):
                 + "\n\n"
             )
             stop_system_instruction = (
-                "A validated Londres trade context is present. Choose the structural stop source "
-                "yourself from the exact options supplied by the deterministic engine. You may "
-                "choose IOF_RANGE or SMT_PROTECTED when both are valid. If only one is valid, use "
-                "that one. Do not invent a different structural stop. Explain the choice using "
-                "MMXM/order-flow context and target geometry. The supplied price is a structural "
-                "anchor only; do not invent a tick buffer or executable stop-loss price yet. "
-                "Set stop_loss to null/omit it. For an active trade, independently choose exactly "
-                "one account-risk tier: 3%, 5%, or 10%. Ten percent is an absolute hard ceiling. "
-                "Also choose exactly one deterministic Phase 12 exit mode supplied in the prompt: "
-                "FULL_AT_SD_2, FULL_AT_SD_2_5, or HOLD_HTF_LIQUIDITY only when that hold mode is "
-                "available. Do not invent a different TP or target price. In HOLD_HTF_LIQUIDITY "
-                "mode the 60% partial at -2.5 is automatic and only the remaining 40% runs to the "
-                "listed HTF liquidity. Explain the target choice. Do not choose a lot size, contract "
-                "count, or position size: Londres volume is calculated by the deterministic risk "
-                "engine from the exact entry-to-stop pips/ticks, broker tick value, and selected "
-                "risk tier. Set position_sizing to null/omit it. If the Londres direction conflicts "
-                "with your transaction direction, choose Hold. "
+                "A validated Londres trade context is present. Phase 13 owns the entry: the valid "
+                "entry zone is the confirmed post-CSD IOF range, and the exact entry is the first "
+                "causal return into that range after IOFC. If Phase 13 says WAIT_FOR_RETRACE or any "
+                "status other than ENTRY_TRIGGERED, choose Hold. If ENTRY_TRIGGERED is supplied, "
+                "use exactly the deterministic entry price shown; do not invent or improve the "
+                "entry. Choose the structural stop source yourself from the exact options supplied "
+                "by the deterministic engine. You may choose IOF_RANGE or SMT_PROTECTED when both "
+                "are valid. If only one is valid, use that one. Do not invent a different structural "
+                "stop. Explain the choice using MMXM/order-flow context and target geometry. The "
+                "supplied stop price is a structural anchor only; do not invent a tick buffer or "
+                "executable stop-loss price yet. Set stop_loss to null/omit it. For an active trade, "
+                "independently choose exactly one account-risk tier: 3%, 5%, or 10%. Ten percent is "
+                "an absolute hard ceiling. Also choose exactly one deterministic Phase 12 exit mode "
+                "supplied in the prompt: FULL_AT_SD_2, FULL_AT_SD_2_5, or HOLD_HTF_LIQUIDITY only "
+                "when that hold mode is available. Do not invent a different TP or target price. In "
+                "HOLD_HTF_LIQUIDITY mode the 60% partial at -2.5 is automatic and only the remaining "
+                "40% runs to the listed HTF liquidity. Explain the target choice. Do not choose a "
+                "lot size, contract count, or position size: Londres volume is calculated by the "
+                "deterministic risk engine from the exact entry-to-stop pips/ticks, broker tick "
+                "value, and selected risk tier. Set position_sizing to null/omit it. If the Londres "
+                "direction conflicts with your transaction direction, choose Hold. "
             )
 
         messages = [
@@ -126,10 +142,9 @@ def create_trader(llm):
                     "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
                     + grounding
                     + stop_system_instruction
-                    + "State entry price and stop-loss as absolute price levels in the "
-                    "instrument's quote currency (for example 189.5), never a percentage "
-                    "or a range; convert a percentage distance to the price level it "
-                    "implies, or omit the field if you cannot state a number. "
+                    + "For non-Londres trades, state entry price and stop-loss as absolute price "
+                    "levels in the instrument's quote currency (for example 189.5), never a "
+                    "percentage or a range; omit a field if you cannot state a number. "
                     + NO_EXTERNAL_TOOLS
                     + get_language_instruction()
                 ),
@@ -153,7 +168,7 @@ def create_trader(llm):
                 proposal = LondresTraderProposal(
                     action=TraderAction.HOLD,
                     reasoning=(
-                        "The deterministic Londres stop/risk/target gate requires structured "
+                        "The deterministic Londres entry/stop/risk/target gate requires structured "
                         "selection, but this provider cannot return the required schema safely."
                     ),
                     selected_stop_source=TraderStopSource.NONE,
@@ -168,9 +183,11 @@ def create_trader(llm):
                     "selected_risk_fraction": None,
                     "selected_exit_mode": TraderExitMode.NONE.value,
                     "target_management": None,
+                    "exact_entry_price": None,
+                    "entry_source": None,
                     "hard_risk_ceiling_fraction": 0.10,
                     "placement": None,
-                    "reason": "STRUCTURED_STOP_RISK_TARGET_SELECTION_UNAVAILABLE",
+                    "reason": "STRUCTURED_ENTRY_STOP_RISK_TARGET_SELECTION_UNAVAILABLE",
                     "order_authorized": False,
                 }
             else:
@@ -182,16 +199,17 @@ def create_trader(llm):
                         proposal,
                         stop_options,
                         target_management,
+                        entry_execution,
                     )
                 except Exception as exc:
                     logger.warning(
-                        "Londres Trader stop/risk/target selection failed (%s); failing closed to Hold",
+                        "Londres Trader entry/stop/risk/target selection failed (%s); failing closed to Hold",
                         exc,
                     )
                     proposal = LondresTraderProposal(
                         action=TraderAction.HOLD,
                         reasoning=(
-                            "Londres structural stop/risk/target selection could not be "
+                            "Londres deterministic entry/stop/risk/target selection could not be "
                             "validated safely."
                         ),
                         selected_stop_source=TraderStopSource.NONE,
@@ -206,9 +224,11 @@ def create_trader(llm):
                         "selected_risk_fraction": None,
                         "selected_exit_mode": TraderExitMode.NONE.value,
                         "target_management": None,
+                        "exact_entry_price": None,
+                        "entry_source": None,
                         "hard_risk_ceiling_fraction": 0.10,
                         "placement": None,
-                        "reason": "STRUCTURAL_STOP_RISK_TARGET_SELECTION_VALIDATION_FAILED",
+                        "reason": "DETERMINISTIC_ENTRY_STOP_RISK_TARGET_VALIDATION_FAILED",
                         "order_authorized": False,
                     }
             trader_plan = render_londres_trader_proposal(proposal)
