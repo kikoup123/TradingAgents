@@ -102,19 +102,24 @@ class MemoryMT5Bridge:
         return self.public_status()
 
 
-def _mt5_payload(*, company: str = "Vantage Global Prime") -> dict:
+def _mt5_payload(
+    *,
+    company: str = "Vantage Global Prime",
+    trade_mode: str = "REAL",
+    server: str = "Vantage-Route-A",
+) -> dict:
     return {
         "schema_version": 1,
         "bridge_status": "CONNECTED",
         "generated_at_ms": NOW_MS - 100,
-        "terminal": {"company": company, "server": "Vantage-Live", "connected": True},
+        "terminal": {"company": company, "server": server, "connected": True},
         "account": {
-            "account_key": "vantage-live-account-key",
+            "account_key": f"vantage-private-{server}",
             "masked_account": "••••4321",
             "provider": company,
-            "server": "Vantage-Live",
+            "server": server,
             "connected": True,
-            "trade_mode": "REAL",
+            "trade_mode": trade_mode,
             "currency": "USD",
             "balance": 10_000.0,
             "equity": 10_000.0,
@@ -206,8 +211,28 @@ def test_fp_markets_ctrader_and_vantage_mt5_reach_same_read_only_boundary() -> N
     assert fp["phase23_account_plan"]["prepared_volume"] == 60.0
     assert vantage["phase23_account_plan"]["prepared_volume"] == 30.0
     assert result["replication_mode"] == "TRADE_INTENT_NOT_RAW_LOT_COPYING"
+    assert result["account_scope"] == "BROKERAGE_ACCOUNTS"
+    assert result["account_environment"] == "HIDDEN_INTERNAL"
     assert result["order_submission_enabled"] is False
     assert result["broker_order_placed"] is False
+
+
+def test_vantage_demo_reaches_phase29_without_public_environment_leak() -> None:
+    payload = _mt5_payload(trade_mode="DEMO", server="Vantage-Route-B")
+    result = LondresPhase29BrokerParityEngine().prepare(
+        intent=_intent(),
+        bindings=_bindings(payload),
+        now_ms=NOW_MS,
+        supervision_policy=_supervision(),
+    )
+    vantage = next(item for item in result["accounts"] if item["venue"] == "VANTAGE_MT5")
+    assert vantage["status"] == "READY"
+    assert vantage["preparation_ready"] is True
+    rendered = str(vantage).upper()
+    assert "TRADE_MODE" not in rendered
+    assert "DEMO" not in rendered
+    assert "REAL" not in rendered
+    assert "VANTAGE-ROUTE-B" not in rendered
 
 
 def test_vantage_provider_identity_mismatch_fails_closed() -> None:
