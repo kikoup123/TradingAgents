@@ -55,21 +55,23 @@ The snapshot is written to a temporary file, flushed, and atomically replaced so
 
 Phase 25 intentionally has **no guessed contract maximum**. Before a futures root can be marked `metadata_verified=true`, an explicit local maximum quantity must be configured.
 
-Example:
+The repository example is fail-closed by default:
 
 ```json
 {
   "publish_interval_ms": 500,
   "max_quantity_by_root": {
-    "NQ": 10,
-    "MNQ": 50,
-    "ES": 10,
-    "MES": 50,
-    "YM": 10,
-    "MYM": 50
+    "NQ": 0,
+    "MNQ": 0,
+    "ES": 0,
+    "MES": 0,
+    "YM": 0,
+    "MYM": 0
   }
 }
 ```
+
+Replace only the roots you actually intend to use with explicit positive limits taken from your broker/account policy. Zero means **unverified / blocked**, not zero-contract execution.
 
 These values are policy inputs. They are not automatically inferred from advertised prop account size and should not be treated as prop-firm daily-loss logic. Phase 23 still owns the personal-vs-prop risk base.
 
@@ -161,7 +163,7 @@ The quote timestamp is the **older** of the bid timestamp and ask timestamp. Thi
 3. Create/open an AddOn source file and use the contents of `ninjatrader/LondresReadOnlyBridge.cs`.
 4. Compile in NinjaScript Editor.
 5. Restart NinjaTrader after a clean compile if needed so the AddOn lifecycle starts cleanly.
-6. Create `<UserDataDir>\Londres\londres_bridge_config.json` with explicit `max_quantity_by_root` values.
+6. Create `<UserDataDir>\Londres\londres_bridge_config.json` and replace only the intended roots with explicit positive `max_quantity_by_root` limits.
 7. Confirm `<UserDataDir>\Londres\ninjatrader_snapshot.json` is being refreshed.
 8. Point the Phase 24 `NinjaTraderJsonBridgeTransport` at that snapshot file.
 
