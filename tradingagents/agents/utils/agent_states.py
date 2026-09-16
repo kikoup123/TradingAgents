@@ -185,9 +185,13 @@ class AgentState(MessagesState):
         dict,
         "Phase 21 broker-native tick-value normalization in account deposit currency with provenance, conversion metadata, broker volume grid, and fail-closed InstrumentRiskSpec generation",
     ]
+    broker_supervision_state: Annotated[
+        dict,
+        "Phase 22 broker supervision heartbeat with reconnect attempts, quote freshness, tick-value freshness, masked account state, and fail-closed execution-data readiness",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization -> broker connection/data freshness supervision context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
