@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+from .market_data import comparable_time
 from .models import Direction
 from .order_flow import _normalize_ohlc
 
@@ -330,17 +331,17 @@ class SMTEngine:
         for data in resolved.values():
             if not isinstance(data.index, pd.DatetimeIndex):
                 raise ValueError("SMT bars must use a DatetimeIndex")
-            common_index = data.index if common_index is None else common_index.intersection(data.index)
+            common_index = (
+                data.index
+                if common_index is None
+                else common_index.intersection(data.index)
+            )
         assert common_index is not None
         common_index = common_index.sort_values()
         if as_of is not None and len(common_index):
-            cutoff = pd.Timestamp(as_of)
-            if common_index.tz is not None and cutoff.tzinfo is None:
-                cutoff = cutoff.tz_localize(common_index.tz)
-            elif common_index.tz is None and cutoff.tzinfo is not None:
-                cutoff = cutoff.tz_localize(None)
-            elif common_index.tz is not None and cutoff.tzinfo is not None:
-                cutoff = cutoff.tz_convert(common_index.tz)
+            # Naive Londres cutoffs are UTC-4 fixed by convention. Convert that
+            # canonical instant into the data index timezone before filtering.
+            cutoff = comparable_time(as_of, common_index)
             common_index = common_index[common_index <= cutoff]
         return {symbol: data.loc[common_index].copy() for symbol, data in resolved.items()}
 
