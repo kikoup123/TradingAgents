@@ -128,6 +128,10 @@ class BrokerInstrumentSpec:
     max_volume: float
     volume_unit: str
     tick_value_account_currency: float | None = None
+    tick_value_currency: str | None = None
+    tick_value_source: str | None = None
+    tick_value_timestamp_ms: int | None = None
+    valuation_model: str | None = None
     pip_size: float | None = None
     minimum_stop_distance: float | None = None
     minimum_target_distance: float | None = None
@@ -146,6 +150,10 @@ class BrokerInstrumentSpec:
             raise ValueError("min_volume cannot exceed max_volume")
         if self.tick_value_account_currency is not None and self.tick_value_account_currency <= 0:
             raise ValueError("tick_value_account_currency must be > 0 when supplied")
+        if self.tick_value_currency is not None and not self.tick_value_currency.strip():
+            raise ValueError("tick_value_currency cannot be blank when supplied")
+        if self.tick_value_timestamp_ms is not None and self.tick_value_timestamp_ms < 0:
+            raise ValueError("tick_value_timestamp_ms cannot be negative")
         if self.pip_size is not None and self.pip_size <= 0:
             raise ValueError("pip_size must be > 0 when supplied")
 
