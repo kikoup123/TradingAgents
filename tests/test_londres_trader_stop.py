@@ -7,6 +7,7 @@ from tradingagents.agents.utils.londres_stop import (
     TraderStopSource,
     validate_londres_trader_stop,
 )
+from tradingagents.ict.target_management import TraderExitMode
 
 
 def stop_options(*, two=True) -> dict:
@@ -35,6 +36,46 @@ def stop_options(*, two=True) -> dict:
         "direction": "BEARISH",
         "candidates": candidates,
         "selection_required": True,
+    }
+
+
+def target_management(*, hold_available=True) -> dict:
+    runner = (
+        {
+            "price": 70.0,
+            "side": "SELL_SIDE",
+            "liquidity_class": "EXTERNAL",
+            "timeframe": "4H",
+            "source": "HTF_EXTERNAL_LIQUIDITY",
+        }
+        if hold_available
+        else None
+    )
+    return {
+        "status": "READY",
+        "direction": "BEARISH",
+        "sd_targets": {
+            "-2": {"label": "-2", "multiplier": 2.0, "price": 80.0},
+            "-2.5": {"label": "-2.5", "multiplier": 2.5, "price": 75.0},
+        },
+        "full_exit_options": [
+            {"mode": "FULL_AT_SD_2", "label": "-2", "price": 80.0},
+            {"mode": "FULL_AT_SD_2_5", "label": "-2.5", "price": 75.0},
+        ],
+        "hold_htf_liquidity_available": hold_available,
+        "htf_runner_target": runner,
+        "hold_management": {
+            "partial": {
+                "trigger_label": "-2.5",
+                "trigger_price": 75.0,
+                "close_fraction": 0.60,
+                "runner_fraction": 0.40,
+                "automatic_if_hold_mode": True,
+            },
+            "runner_fraction": 0.40 if hold_available else 0.0,
+        },
+        "selection_required": True,
+        "order_authorized": False,
     }
 
 
@@ -160,3 +201,85 @@ def test_direction_conflict_fails_closed_to_hold() -> None:
 
     assert validated.action == TraderAction.HOLD
     assert state["reason"] == "TRADER_DIRECTION_CONFLICTS_WITH_LONDRES_GATE"
+
+
+def test_phase12_full_exit_at_minus_2_is_hard_validated() -> None:
+    proposal = LondresTraderProposal(
+        action=TraderAction.SELL,
+        reasoning="Take the standard -2 objective.",
+        selected_stop_source=TraderStopSource.IOF_RANGE,
+        selected_risk_level=TraderRiskLevel.RISK_3,
+        selected_exit_mode=TraderExitMode.FULL_AT_SD_2,
+    )
+
+    validated, state = validate_londres_trader_stop(
+        proposal,
+        stop_options(),
+        target_management(),
+    )
+
+    assert validated.action == TraderAction.SELL
+    assert validated.selected_exit_mode == TraderExitMode.FULL_AT_SD_2
+    assert state["selected_exit_mode"] == "FULL_AT_SD_2"
+    assert state["target_management"]["original_target"]["price"] == 80.0
+    assert state["target_management"]["hold_for_htf_liquidity"] is False
+
+
+def test_phase12_hold_mode_encodes_automatic_60_40_management() -> None:
+    proposal = LondresTraderProposal(
+        action=TraderAction.SELL,
+        reasoning="Hold the runner for the available 4H sell-side liquidity.",
+        selected_stop_source=TraderStopSource.SMT_PROTECTED,
+        selected_risk_level=TraderRiskLevel.RISK_5,
+        selected_exit_mode=TraderExitMode.HOLD_HTF_LIQUIDITY,
+    )
+
+    _, state = validate_londres_trader_stop(
+        proposal,
+        stop_options(),
+        target_management(),
+    )
+    management = state["target_management"]
+
+    assert management["partial_fraction"] == 0.60
+    assert management["runner_fraction"] == 0.40
+    assert management["partial_trigger"]["trigger_price"] == 75.0
+    assert management["runner_target"]["price"] == 70.0
+
+
+def test_phase12_hold_mode_fails_closed_when_htf_runner_is_unavailable() -> None:
+    proposal = LondresTraderProposal(
+        action=TraderAction.SELL,
+        reasoning="Attempting unavailable runner hold.",
+        selected_stop_source=TraderStopSource.IOF_RANGE,
+        selected_risk_level=TraderRiskLevel.RISK_3,
+        selected_exit_mode=TraderExitMode.HOLD_HTF_LIQUIDITY,
+    )
+
+    validated, state = validate_londres_trader_stop(
+        proposal,
+        stop_options(),
+        target_management(hold_available=False),
+    )
+
+    assert validated.action == TraderAction.HOLD
+    assert state["reason"] == "EXIT_MODE_NOT_IN_DETERMINISTIC_TARGET_OPTIONS"
+
+
+def test_phase12_active_trade_requires_deterministic_exit_mode() -> None:
+    proposal = LondresTraderProposal(
+        action=TraderAction.SELL,
+        reasoning="No target choice was supplied.",
+        selected_stop_source=TraderStopSource.IOF_RANGE,
+        selected_risk_level=TraderRiskLevel.RISK_3,
+        selected_exit_mode=TraderExitMode.NONE,
+    )
+
+    validated, state = validate_londres_trader_stop(
+        proposal,
+        stop_options(),
+        target_management(),
+    )
+
+    assert validated.action == TraderAction.HOLD
+    assert state["reason"] == "ACTIVE_TRADE_REQUIRES_DETERMINISTIC_EXIT_MODE"
