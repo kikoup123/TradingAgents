@@ -141,13 +141,17 @@ class AgentState(MessagesState):
         dict,
         "Phase 14 executable stop derived from the selected structural anchor plus explicit broker tick/buffer policy",
     ]
+    trade_calculation_state: Annotated[
+        dict,
+        "Phase 15 complete trade calculation: entry, executable stop, risk-sized volume, selected CSD target, R:R, and exact 60/40 hold split when broker-executable",
+    ]
     execution_package_state: Annotated[
         dict,
-        "Exact entry, selected structural stop geometry, executable stop readiness, and deterministic CSD targets",
+        "Exact entry, executable stop, deterministic risk sizing, selected CSD target geometry, and pre-order calculation state",
     ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
