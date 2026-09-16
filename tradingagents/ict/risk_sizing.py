@@ -1,14 +1,14 @@
 """Deterministic position sizing from structural stop distance.
 
-The Londres risk model never accepts a user/LLM-selected trading volume.  Once
+The Londres risk model never accepts a user/LLM-selected trading volume. Once
 an exact entry and executable stop are known, the engine measures the price
 range in broker ticks (and pips when a pip size is supplied), converts that
 range into cash risk per volume unit, then rounds the maximum safe volume DOWN
 to the broker's allowed step.
 
-Account risk is a policy input, not a Trader discretion.  This module therefore
-requires an explicit account equity and risk fraction instead of inventing a
-percentage.  Broker/symbol metadata supplies tick value and volume constraints.
+The Trader may select only one of the approved account-risk tiers: 3%, 5%, or
+10% of account equity. Ten percent is the absolute hard ceiling. Broker/symbol
+metadata supplies tick value and volume constraints.
 """
 
 from __future__ import annotations
@@ -17,6 +17,10 @@ import math
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
+
+
+ALLOWED_RISK_FRACTIONS = (0.03, 0.05, 0.10)
+MAX_ACCOUNT_RISK_FRACTION = 0.10
 
 
 class RiskSizingStatus(str, Enum):
@@ -32,7 +36,7 @@ class InstrumentRiskSpec:
     """Broker-resolved sizing metadata for one tradable symbol.
 
     ``tick_value_per_volume_unit`` is the cash P/L for one tick of movement for
-    one ``volume_unit`` (for example one futures contract or one lot).  The
+    one ``volume_unit`` (for example one futures contract or one lot). The
     broker adapter must resolve this in the account currency before sizing.
     """
 
@@ -71,8 +75,10 @@ class AccountRiskPolicy:
     def __post_init__(self) -> None:
         if self.account_equity <= 0:
             raise ValueError("account_equity must be > 0")
-        if not 0 < self.risk_fraction <= 1:
-            raise ValueError("risk_fraction must be within (0, 1]")
+        if not any(math.isclose(self.risk_fraction, allowed, abs_tol=1e-12) for allowed in ALLOWED_RISK_FRACTIONS):
+            raise ValueError("risk_fraction must be one of 0.03, 0.05, or 0.10")
+        if self.risk_fraction > MAX_ACCOUNT_RISK_FRACTION + 1e-12:
+            raise ValueError("risk_fraction cannot exceed the 10% hard account-risk ceiling")
         if self.max_risk_cash is not None and self.max_risk_cash <= 0:
             raise ValueError("max_risk_cash must be > 0 when supplied")
 
@@ -94,6 +100,8 @@ class RiskSizingResult:
     stop_distance_price: float | None
     stop_distance_ticks: int | None
     stop_distance_pips: float | None
+    selected_risk_fraction: float
+    hard_risk_ceiling_fraction: float
     risk_cash_budget: float
     risk_cash_per_volume_unit: float | None
     raw_volume: float | None
@@ -108,6 +116,7 @@ class RiskSizingResult:
         payload["status"] = self.status.value
         payload["manual_volume_allowed"] = False
         payload["sizing_authority"] = "DETERMINISTIC_STOP_RANGE_RISK_ENGINE"
+        payload["allowed_risk_fractions"] = list(ALLOWED_RISK_FRACTIONS)
         return payload
 
 
@@ -146,9 +155,7 @@ class RiskSizingEngine:
 
         entry = float(entry_price)
         stop = float(stop_price)
-        geometry_valid = (
-            direction == "BULLISH" and stop < entry
-        ) or (
+        geometry_valid = (direction == "BULLISH" and stop < entry) or (
             direction == "BEARISH" and stop > entry
         )
         if not geometry_valid:
@@ -183,6 +190,8 @@ class RiskSizingEngine:
                 stop_distance_price=distance,
                 stop_distance_ticks=ticks,
                 stop_distance_pips=pips,
+                selected_risk_fraction=policy.risk_fraction,
+                hard_risk_ceiling_fraction=MAX_ACCOUNT_RISK_FRACTION,
                 risk_cash_budget=budget,
                 risk_cash_per_volume_unit=cash_per_volume,
                 raw_volume=raw_volume,
@@ -193,12 +202,18 @@ class RiskSizingEngine:
                 reason_codes=(
                     "SAFE_VOLUME_BELOW_BROKER_MINIMUM",
                     "DO_NOT_ROUND_UP_AND_EXCEED_RISK_BUDGET",
+                    "TEN_PERCENT_ACCOUNT_RISK_HARD_CEILING",
                 ),
             )
 
         final_volume = min(final_volume, instrument.max_volume)
         projected_cash_risk = final_volume * cash_per_volume
         projected_fraction = projected_cash_risk / policy.account_equity
+        if projected_fraction > MAX_ACCOUNT_RISK_FRACTION + 1e-12:
+            raise RuntimeError("deterministic sizing exceeded the 10% hard account-risk ceiling")
+        if projected_cash_risk > budget + 1e-9:
+            raise RuntimeError("deterministic sizing exceeded the selected risk budget")
+
         return RiskSizingResult(
             status=RiskSizingStatus.READY,
             direction=direction,
@@ -208,6 +223,8 @@ class RiskSizingEngine:
             stop_distance_price=distance,
             stop_distance_ticks=ticks,
             stop_distance_pips=pips,
+            selected_risk_fraction=policy.risk_fraction,
+            hard_risk_ceiling_fraction=MAX_ACCOUNT_RISK_FRACTION,
             risk_cash_budget=budget,
             risk_cash_per_volume_unit=cash_per_volume,
             raw_volume=raw_volume,
@@ -216,9 +233,11 @@ class RiskSizingEngine:
             projected_cash_risk=projected_cash_risk,
             projected_equity_risk_fraction=projected_fraction,
             reason_codes=(
+                "TRADER_RISK_TIER_RESTRICTED_TO_3_5_OR_10_PERCENT",
                 "VOLUME_DERIVED_FROM_STOP_RANGE_NOT_USER_INPUT",
                 "VOLUME_ROUNDED_DOWN_TO_BROKER_STEP",
-                "PROJECTED_RISK_NOT_ABOVE_POLICY_BUDGET",
+                "PROJECTED_RISK_NOT_ABOVE_SELECTED_POLICY_BUDGET",
+                "TEN_PERCENT_ACCOUNT_RISK_HARD_CEILING",
             ),
         )
 
@@ -247,6 +266,8 @@ class RiskSizingEngine:
             stop_distance_price=None,
             stop_distance_ticks=None,
             stop_distance_pips=None,
+            selected_risk_fraction=policy.risk_fraction,
+            hard_risk_ceiling_fraction=MAX_ACCOUNT_RISK_FRACTION,
             risk_cash_budget=policy.risk_cash_budget,
             risk_cash_per_volume_unit=None,
             raw_volume=None,
@@ -254,5 +275,10 @@ class RiskSizingEngine:
             volume_unit=instrument.volume_unit,
             projected_cash_risk=None,
             projected_equity_risk_fraction=None,
-            reason_codes=(reason, "MANUAL_VOLUME_FORBIDDEN"),
+            reason_codes=(
+                reason,
+                "TRADER_RISK_TIER_RESTRICTED_TO_3_5_OR_10_PERCENT",
+                "MANUAL_VOLUME_FORBIDDEN",
+                "TEN_PERCENT_ACCOUNT_RISK_HARD_CEILING",
+            ),
         )
