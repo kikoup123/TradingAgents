@@ -29,7 +29,11 @@ from .ctrader_readonly import (
     CTraderTokenSet,
     _mask_account,
 )
-from .ctrader_valuation import CTraderConversionLeg, CTraderTickValueSnapshot, resolve_linear_tick_value
+from .ctrader_valuation import (
+    CTraderConversionLeg,
+    CTraderTickValueSnapshot,
+    resolve_linear_tick_value,
+)
 
 
 class CTraderJsonReadOnlyTransport(_BaseJsonReadOnlyTransport):
