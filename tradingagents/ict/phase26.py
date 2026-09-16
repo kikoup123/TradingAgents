@@ -1,10 +1,4 @@
-"""Phase 26: per-account NinjaTrader futures and prop-firm rule profiles.
-
-Phase 26 sits above Phase 24. It keeps the same Londres trade intent while
-applying explicit account-local policy before an account may remain preparation
-ready. It never copies raw contract quantity between accounts and never silently
-resizes a position that exceeds an account policy cap.
-"""
+"""Phase 26: per-account NinjaTrader live-brokerage rule profiles."""
 
 from __future__ import annotations
 
@@ -13,11 +7,6 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
-from tradingagents.brokers.account_risk import (
-    AccountClassification,
-    AccountClassificationSource,
-    PropFirmRiskLimits,
-)
 from tradingagents.brokers.contracts import OrchestrationPolicy, TradeIntent, canonicalize_symbol
 from tradingagents.brokers.ninjatrader_futures import NINJATRADER_EQUITY_INDEX_FUTURES
 from tradingagents.brokers.supervision import BrokerSupervisionPolicy
@@ -34,18 +23,13 @@ class Phase26AccountStatus(str, Enum):
     BLOCKED_ROOT_NOT_ALLOWED = "BLOCKED_ROOT_NOT_ALLOWED"
     BLOCKED_RULE_CONTEXT = "BLOCKED_RULE_CONTEXT"
     BLOCKED_RULE_VIOLATION = "BLOCKED_RULE_VIOLATION"
-    BLOCKED_UNSUPPORTED_REQUIRED_RULE = "BLOCKED_UNSUPPORTED_REQUIRED_RULE"
     BLOCKED_PHASE24 = "BLOCKED_PHASE24"
     BLOCKED_MAX_CONTRACTS = "BLOCKED_MAX_CONTRACTS"
 
 
 @dataclass(frozen=True)
 class NinjaTraderTradeRuleContext:
-    """Facts required to evaluate optional account-specific trading rules.
-
-    A value of ``None`` means the fact is unavailable. If an account policy
-    requires that fact, Phase 26 fails closed rather than assuming permission.
-    """
+    """Current facts used by optional live-account trading restrictions."""
 
     session: str | None = None
     high_impact_news_window: bool | None = None
@@ -65,30 +49,19 @@ class NinjaTraderTradeRuleContext:
 
 @dataclass(frozen=True)
 class NinjaTraderAccountRuleProfile:
-    """Explicit per-account policy for one NinjaTrader account.
-
-    The profile intentionally duplicates the Phase 24 binding inputs so the
-    account's classification, root mapping, risk tier and prop-loss buffers are
-    bound to the same policy object as its allowed futures roots and contract
-    caps. Nominal prop account size remains metadata only through Phase 23.
-    """
+    """Explicit per-live-account futures and trading policy."""
 
     account_alias: str
     root_map: dict[str, str]
     risk_fraction: float
     allowed_roots: tuple[str, ...]
     max_contracts_by_root: dict[str, int]
-    configured_classification: AccountClassification | None = None
-    classification_source: AccountClassificationSource = AccountClassificationSource.UNKNOWN
-    prop_limits: PropFirmRiskLimits | None = None
     enabled: bool = True
     max_risk_cash: float | None = None
     allowed_sessions: tuple[str, ...] | None = None
     news_trading_allowed: bool | None = None
     overnight_holding_allowed: bool | None = None
     weekend_holding_allowed: bool | None = None
-    consistency_rule_required: bool = False
-    scaling_rule_required: bool = False
 
     def __post_init__(self) -> None:
         if not self.account_alias.strip():
@@ -140,9 +113,6 @@ class NinjaTraderAccountRuleProfile:
             account_alias=self.account_alias,
             root_map=self.root_map,
             risk_fraction=self.risk_fraction,
-            configured_classification=self.configured_classification,
-            classification_source=self.classification_source,
-            prop_limits=self.prop_limits,
             enabled=self.enabled,
             max_risk_cash=self.max_risk_cash,
         )
@@ -153,12 +123,6 @@ class NinjaTraderAccountRuleProfile:
             "enabled": self.enabled,
             "root_map": dict(self.root_map),
             "risk_fraction": self.risk_fraction,
-            "configured_classification": (
-                self.configured_classification.value
-                if self.configured_classification is not None
-                else None
-            ),
-            "classification_source": self.classification_source.value,
             "allowed_roots": list(self.allowed_roots),
             "max_contracts_by_root": dict(self.max_contracts_by_root),
             "max_risk_cash": self.max_risk_cash,
@@ -168,9 +132,8 @@ class NinjaTraderAccountRuleProfile:
             "news_trading_allowed": self.news_trading_allowed,
             "overnight_holding_allowed": self.overnight_holding_allowed,
             "weekend_holding_allowed": self.weekend_holding_allowed,
-            "consistency_rule_required": self.consistency_rule_required,
-            "scaling_rule_required": self.scaling_rule_required,
-            "nominal_prop_account_size_used_for_sizing": False,
+            "risk_base_mode": "CURRENT_BROKER_ACCOUNT_EQUITY",
+            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
             "account_environment": "HIDDEN_INTERNAL",
         }
 
@@ -195,6 +158,7 @@ class Phase26AccountPlan:
         payload = asdict(self)
         payload["status"] = self.status.value
         payload["account_environment"] = "HIDDEN_INTERNAL"
+        payload["account_scope"] = "LIVE_BROKERAGE_ACCOUNTS_ONLY"
         payload["read_only"] = True
         payload["execution_enabled"] = False
         payload["order_submission_enabled"] = False
@@ -230,7 +194,9 @@ class Phase26MultiAccountPlan:
             "skipped_accounts": self.skipped_accounts,
             "batch_ready_for_future_execution": self.batch_ready_for_future_execution,
             "position_copy_mode": "REPLICATE_TRADE_INTENT_NEVER_RAW_CONTRACT_COUNT",
-            "account_policy_mode": "EXPLICIT_PER_ACCOUNT_FAIL_CLOSED",
+            "account_policy_mode": "EXPLICIT_PER_LIVE_ACCOUNT_FAIL_CLOSED",
+            "risk_base_mode": "CURRENT_BROKER_ACCOUNT_EQUITY",
+            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
             "account_environment": "HIDDEN_INTERNAL",
             "read_only": True,
             "execution_enabled": False,
@@ -242,7 +208,7 @@ class Phase26MultiAccountPlan:
 
 
 class LondresPhase26NinjaTraderAccountPolicyEngine:
-    """Apply per-account futures and prop-firm policy above Phase 24."""
+    """Apply per-account live brokerage policy above Phase 24."""
 
     def __init__(self, phase24: LondresPhase24NinjaTraderReadOnlyEngine) -> None:
         self._phase24 = phase24
@@ -286,19 +252,18 @@ class LondresPhase26NinjaTraderAccountPolicyEngine:
             if profile.account_alias in prechecked:
                 plans.append(prechecked[profile.account_alias])
                 continue
-            phase24_account = phase24_accounts.get(profile.account_alias)
             plans.append(
                 self._from_phase24(
                     intent=intent,
                     profile=profile,
                     context=rule_context,
-                    phase24_account=phase24_account,
+                    phase24_account=phase24_accounts.get(profile.account_alias),
                 )
             )
 
         result = self._batch(intent=intent, plans=tuple(plans), policy=policy)
         payload = result.to_dict()
-        payload["phase"] = "LONDRES_PHASE26_NINJATRADER_PER_ACCOUNT_RULE_PROFILES"
+        payload["phase"] = "LONDRES_PHASE26_NINJATRADER_LIVE_ACCOUNT_RULE_PROFILES"
         return payload
 
     @staticmethod
@@ -313,8 +278,6 @@ class LondresPhase26NinjaTraderAccountPolicyEngine:
         context: NinjaTraderTradeRuleContext,
     ) -> Phase26AccountPlan | None:
         canonical = intent.canonical
-        policy_state = profile.public_dict()
-        rule_state = context.public_dict()
         if not profile.enabled:
             return self._blocked(
                 profile=profile,
@@ -362,106 +325,46 @@ class LondresPhase26NinjaTraderAccountPolicyEngine:
                 reason="EXPLICIT_PER_ACCOUNT_MAX_CONTRACTS_REQUIRED_FOR_SELECTED_ROOT",
             )
 
-        if profile.consistency_rule_required:
+        rule_failure = self._rule_failure(profile=profile, context=context)
+        if rule_failure is not None:
+            status, reason = rule_failure
             return self._blocked(
                 profile=profile,
                 canonical=canonical,
-                status=Phase26AccountStatus.BLOCKED_UNSUPPORTED_REQUIRED_RULE,
+                status=status,
                 context=context,
                 selected_root=root,
-                reason="PROP_CONSISTENCY_RULE_REQUIRED_BUT_NOT_YET_ENCODED",
+                reason=reason,
             )
-        if profile.scaling_rule_required:
-            return self._blocked(
-                profile=profile,
-                canonical=canonical,
-                status=Phase26AccountStatus.BLOCKED_UNSUPPORTED_REQUIRED_RULE,
-                context=context,
-                selected_root=root,
-                reason="PROP_SCALING_RULE_REQUIRED_BUT_NOT_YET_ENCODED",
-            )
+        return None
 
+    @staticmethod
+    def _rule_failure(
+        *, profile: NinjaTraderAccountRuleProfile, context: NinjaTraderTradeRuleContext
+    ) -> tuple[Phase26AccountStatus, str] | None:
         if profile.allowed_sessions is not None:
             if context.session is None:
-                return self._blocked(
-                    profile=profile,
-                    canonical=canonical,
-                    status=Phase26AccountStatus.BLOCKED_RULE_CONTEXT,
-                    context=context,
-                    selected_root=root,
-                    reason="SESSION_RULE_REQUIRES_VERIFIED_CURRENT_SESSION",
-                )
+                return Phase26AccountStatus.BLOCKED_RULE_CONTEXT, "SESSION_RULE_REQUIRES_VERIFIED_CURRENT_SESSION"
             if context.session not in profile.allowed_sessions:
-                return self._blocked(
-                    profile=profile,
-                    canonical=canonical,
-                    status=Phase26AccountStatus.BLOCKED_RULE_VIOLATION,
-                    context=context,
-                    selected_root=root,
-                    reason="CURRENT_SESSION_NOT_ALLOWED_BY_ACCOUNT_POLICY",
-                )
+                return Phase26AccountStatus.BLOCKED_RULE_VIOLATION, "CURRENT_SESSION_NOT_ALLOWED_BY_ACCOUNT_POLICY"
 
         if profile.news_trading_allowed is not None:
             if context.high_impact_news_window is None:
-                return self._blocked(
-                    profile=profile,
-                    canonical=canonical,
-                    status=Phase26AccountStatus.BLOCKED_RULE_CONTEXT,
-                    context=context,
-                    selected_root=root,
-                    reason="NEWS_RULE_REQUIRES_VERIFIED_NEWS_WINDOW_STATE",
-                )
+                return Phase26AccountStatus.BLOCKED_RULE_CONTEXT, "NEWS_RULE_REQUIRES_VERIFIED_NEWS_WINDOW_STATE"
             if context.high_impact_news_window and not profile.news_trading_allowed:
-                return self._blocked(
-                    profile=profile,
-                    canonical=canonical,
-                    status=Phase26AccountStatus.BLOCKED_RULE_VIOLATION,
-                    context=context,
-                    selected_root=root,
-                    reason="HIGH_IMPACT_NEWS_TRADING_PROHIBITED_BY_ACCOUNT_POLICY",
-                )
+                return Phase26AccountStatus.BLOCKED_RULE_VIOLATION, "HIGH_IMPACT_NEWS_TRADING_PROHIBITED_BY_ACCOUNT_POLICY"
 
         if profile.overnight_holding_allowed is not None:
             if context.will_hold_overnight is None:
-                return self._blocked(
-                    profile=profile,
-                    canonical=canonical,
-                    status=Phase26AccountStatus.BLOCKED_RULE_CONTEXT,
-                    context=context,
-                    selected_root=root,
-                    reason="OVERNIGHT_RULE_REQUIRES_VERIFIED_HOLDING_INTENT",
-                )
+                return Phase26AccountStatus.BLOCKED_RULE_CONTEXT, "OVERNIGHT_RULE_REQUIRES_VERIFIED_HOLD_INTENT"
             if context.will_hold_overnight and not profile.overnight_holding_allowed:
-                return self._blocked(
-                    profile=profile,
-                    canonical=canonical,
-                    status=Phase26AccountStatus.BLOCKED_RULE_VIOLATION,
-                    context=context,
-                    selected_root=root,
-                    reason="OVERNIGHT_HOLDING_PROHIBITED_BY_ACCOUNT_POLICY",
-                )
+                return Phase26AccountStatus.BLOCKED_RULE_VIOLATION, "OVERNIGHT_HOLDING_PROHIBITED_BY_ACCOUNT_POLICY"
 
         if profile.weekend_holding_allowed is not None:
             if context.will_hold_weekend is None:
-                return self._blocked(
-                    profile=profile,
-                    canonical=canonical,
-                    status=Phase26AccountStatus.BLOCKED_RULE_CONTEXT,
-                    context=context,
-                    selected_root=root,
-                    reason="WEEKEND_RULE_REQUIRES_VERIFIED_HOLDING_INTENT",
-                )
+                return Phase26AccountStatus.BLOCKED_RULE_CONTEXT, "WEEKEND_RULE_REQUIRES_VERIFIED_HOLD_INTENT"
             if context.will_hold_weekend and not profile.weekend_holding_allowed:
-                return self._blocked(
-                    profile=profile,
-                    canonical=canonical,
-                    status=Phase26AccountStatus.BLOCKED_RULE_VIOLATION,
-                    context=context,
-                    selected_root=root,
-                    reason="WEEKEND_HOLDING_PROHIBITED_BY_ACCOUNT_POLICY",
-                )
-
-        _ = policy_state, rule_state
+                return Phase26AccountStatus.BLOCKED_RULE_VIOLATION, "WEEKEND_HOLDING_PROHIBITED_BY_ACCOUNT_POLICY"
         return None
 
     def _from_phase24(
@@ -473,72 +376,42 @@ class LondresPhase26NinjaTraderAccountPolicyEngine:
         phase24_account: dict[str, Any] | None,
     ) -> Phase26AccountPlan:
         canonical = intent.canonical
-        root = profile.root_map.get(canonical)
-        cap = profile.max_contracts_by_root.get(root or "")
-        if phase24_account is None:
+        root = profile.root_map[canonical]
+        cap = profile.max_contracts_by_root[root]
+        if not phase24_account or not phase24_account.get("preparation_ready"):
             return self._blocked(
                 profile=profile,
                 canonical=canonical,
                 status=Phase26AccountStatus.BLOCKED_PHASE24,
                 context=context,
                 selected_root=root,
-                reason="PHASE24_ACCOUNT_RESULT_UNAVAILABLE",
-            )
-        if not phase24_account.get("preparation_ready"):
-            reason = "PHASE24_ACCOUNT_PREPARATION_BLOCKED"
-            phase24_reasons = phase24_account.get("reason_codes") or []
-            if phase24_reasons:
-                reason = str(phase24_reasons[0])
-            return self._blocked(
-                profile=profile,
-                canonical=canonical,
-                status=Phase26AccountStatus.BLOCKED_PHASE24,
-                context=context,
-                selected_root=root,
-                phase24_account_plan=phase24_account,
-                reason=reason,
+                phase24_account=phase24_account,
+                reason="PHASE24_LIVE_ACCOUNT_PREPARATION_BLOCKED",
             )
 
-        prepared = self._prepared_contracts(phase24_account)
-        if prepared is None or not math.isfinite(prepared) or prepared <= 0:
+        phase23 = phase24_account.get("phase23_account_plan") or {}
+        prepared_raw = phase23.get("prepared_volume")
+        prepared = float(prepared_raw) if prepared_raw is not None else None
+        if prepared is None:
             return self._blocked(
                 profile=profile,
                 canonical=canonical,
                 status=Phase26AccountStatus.BLOCKED_PHASE24,
                 context=context,
                 selected_root=root,
-                phase24_account_plan=phase24_account,
-                reason="PHASE24_READY_ACCOUNT_MISSING_VALID_PREPARED_CONTRACT_QUANTITY",
+                phase24_account=phase24_account,
+                reason="PHASE24_DID_NOT_PRODUCE_PREPARED_CONTRACT_QUANTITY",
             )
-        if cap is None:
+        if prepared > cap + 1e-12:
             return self._blocked(
                 profile=profile,
                 canonical=canonical,
-                status=Phase26AccountStatus.BLOCKED_POLICY_CONFIGURATION,
+                status=Phase26AccountStatus.BLOCKED_MAX_CONTRACTS,
                 context=context,
                 selected_root=root,
-                phase24_account_plan=phase24_account,
-                reason="PER_ACCOUNT_CONTRACT_CAP_UNAVAILABLE",
-            )
-        if prepared > float(cap) + 1e-12:
-            return Phase26AccountPlan(
-                account_alias=profile.account_alias,
-                status=Phase26AccountStatus.BLOCKED_MAX_CONTRACTS,
-                canonical_symbol=canonical,
-                selected_root=root,
-                max_contracts=cap,
+                phase24_account=phase24_account,
                 prepared_contracts=prepared,
-                policy_state=profile.public_dict(),
-                rule_context=context.public_dict(),
-                phase24_account_plan=phase24_account,
-                preparation_ready=False,
-                order_authorized=False,
-                broker_order_placed=False,
-                reason_codes=(
-                    "RISK_SIZED_CONTRACT_QUANTITY_EXCEEDS_EXPLICIT_ACCOUNT_CAP",
-                    "PHASE26_DOES_NOT_SILENTLY_RESIZE_TO_ACCOUNT_MAXIMUM",
-                    "NO_BROKER_ORDER_SUBMISSION_IN_PHASE26",
-                ),
+                reason="RISK_SIZED_CONTRACT_QUANTITY_EXCEEDS_EXPLICIT_ACCOUNT_CAP_NO_SILENT_RESIZE",
             )
 
         return Phase26AccountPlan(
@@ -555,27 +428,12 @@ class LondresPhase26NinjaTraderAccountPolicyEngine:
             order_authorized=False,
             broker_order_placed=False,
             reason_codes=(
-                "PHASE24_READ_ONLY_ACCOUNT_PREPARATION_READY",
-                "EXPLICIT_PER_ACCOUNT_ROOT_AND_CONTRACT_CAP_VALIDATED",
-                "OPTIONAL_ACCOUNT_RULES_VALIDATED_WITHOUT_GUESSING",
-                "RAW_CONTRACT_COUNT_NOT_COPIED_BETWEEN_ACCOUNTS",
+                "LIVE_ACCOUNT_POLICY_VALIDATED",
+                "CONTRACT_CAP_VALIDATED_WITHOUT_SILENT_RESIZING",
+                "POSITION_SIZE_COMES_FROM_CURRENT_ACCOUNT_EQUITY_AND_LONDRES_STOP_DISTANCE",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE26",
             ),
         )
-
-    @staticmethod
-    def _prepared_contracts(phase24_account: dict[str, Any]) -> float | None:
-        phase23 = phase24_account.get("phase23_account_plan")
-        if not isinstance(phase23, dict):
-            return None
-        phase20 = phase23.get("phase20_account_plan")
-        if not isinstance(phase20, dict):
-            return None
-        value = phase20.get("prepared_volume")
-        try:
-            return float(value) if value is not None else None
-        except (TypeError, ValueError):
-            return None
 
     @staticmethod
     def _blocked(
@@ -586,19 +444,20 @@ class LondresPhase26NinjaTraderAccountPolicyEngine:
         context: NinjaTraderTradeRuleContext,
         reason: str,
         selected_root: str | None = None,
-        phase24_account_plan: dict[str, Any] | None = None,
+        phase24_account: dict[str, Any] | None = None,
+        prepared_contracts: float | None = None,
     ) -> Phase26AccountPlan:
-        cap = profile.max_contracts_by_root.get(selected_root or "")
+        cap = profile.max_contracts_by_root.get(selected_root) if selected_root is not None else None
         return Phase26AccountPlan(
             account_alias=profile.account_alias,
             status=status,
             canonical_symbol=canonical,
             selected_root=selected_root,
             max_contracts=cap,
-            prepared_contracts=None,
+            prepared_contracts=prepared_contracts,
             policy_state=profile.public_dict(),
             rule_context=context.public_dict(),
-            phase24_account_plan=phase24_account_plan,
+            phase24_account_plan=phase24_account,
             preparation_ready=False,
             order_authorized=False,
             broker_order_placed=False,
@@ -607,46 +466,43 @@ class LondresPhase26NinjaTraderAccountPolicyEngine:
 
     @staticmethod
     def _batch(
-        *,
-        intent: TradeIntent,
-        plans: tuple[Phase26AccountPlan, ...],
-        policy: OrchestrationPolicy,
+        *, intent: TradeIntent, plans: tuple[Phase26AccountPlan, ...], policy: OrchestrationPolicy
     ) -> Phase26MultiAccountPlan:
-        skipped = sum(plan.status is Phase26AccountStatus.SKIPPED_DISABLED for plan in plans)
+        skipped = sum(item.status is Phase26AccountStatus.SKIPPED_DISABLED for item in plans)
         enabled = len(plans) - skipped
-        ready = sum(plan.preparation_ready for plan in plans)
+        ready = sum(item.preparation_ready for item in plans)
         blocked = enabled - ready
 
         if enabled == 0:
             status = MultiAccountBatchStatus.NO_ENABLED_ACCOUNTS
             batch_ready = False
-            reasons = ("NO_ENABLED_NINJATRADER_ACCOUNTS_FOR_PHASE26_POLICY",)
+            reasons = ("NO_ENABLED_LIVE_ACCOUNTS_FOR_PHASE26",)
         elif policy is OrchestrationPolicy.ALL_OR_NONE:
             batch_ready = ready == enabled
             status = MultiAccountBatchStatus.READY if batch_ready else MultiAccountBatchStatus.BLOCKED
             reasons = (
-                "ALL_OR_NONE_REQUIRES_EVERY_ENABLED_ACCOUNT_TO_PASS_PHASE26",
+                "ALL_OR_NONE_REQUIRES_EVERY_ENABLED_LIVE_ACCOUNT_TO_PASS_PHASE26",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE26",
             )
         elif ready == enabled:
             status = MultiAccountBatchStatus.READY
             batch_ready = True
             reasons = (
-                "ALL_ENABLED_ACCOUNTS_PASSED_PER_ACCOUNT_RULE_POLICY",
+                "ALL_ENABLED_LIVE_ACCOUNTS_PASSED_PHASE26",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE26",
             )
         elif ready > 0:
             status = MultiAccountBatchStatus.PARTIAL_READY
             batch_ready = True
             reasons = (
-                "BEST_EFFORT_ISOLATES_ACCOUNTS_BLOCKED_BY_PHASE26_POLICY",
+                "BEST_EFFORT_ISOLATES_LIVE_ACCOUNTS_BLOCKED_BY_LOCAL_POLICY",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE26",
             )
         else:
             status = MultiAccountBatchStatus.BLOCKED
             batch_ready = False
             reasons = (
-                "NO_ENABLED_ACCOUNT_PASSED_PHASE26_POLICY",
+                "NO_ENABLED_LIVE_ACCOUNT_PASSED_PHASE26",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE26",
             )
 

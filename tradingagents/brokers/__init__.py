@@ -1,21 +1,10 @@
 """Broker connectivity adapters.
 
-Broker modules keep secrets and account-environment classification outside
-LLM-facing state. Strategy logic consumes the universal contracts instead of
-binding directly to one broker implementation.
+Broker modules keep secrets and account-environment details outside LLM-facing
+state. Londres is configured for live brokerage accounts only; risk sizing uses
+each account's current broker-reported equity.
 """
 
-from .account_risk import (
-    AccountClassification,
-    AccountClassificationSource,
-    AccountClassificationStatus,
-    AccountRiskBaseResolver,
-    AccountRiskBaseResult,
-    AccountRiskBaseStatus,
-    AccountRiskProfile,
-    PropFirmRiskLimits,
-    RiskBaseAccountAdapter,
-)
 from .contracts import (
     BrokerAccountSnapshot,
     BrokerAdapter,
@@ -62,48 +51,6 @@ from .ninjatrader_futures import (
     ParsedNinjaTraderContract,
     parse_ninjatrader_contract_symbol,
 )
-from .prop_compliance import (
-    FormulaCheck,
-    FormulaCheckStatus,
-    PropFirmComplianceEngine,
-    PropFirmComplianceResult,
-    PropFirmComplianceStatus,
-    PropFirmFormulaAdapter,
-    PropFirmFormulaRegistry,
-    PropFirmLiveMetrics,
-)
-from .prop_risk_telemetry import (
-    JsonPropRiskTelemetrySource,
-    PropRiskTelemetryPolicy,
-    PropRiskTelemetrySnapshot,
-    PropRiskTelemetrySource,
-    PropRiskTelemetryStatus,
-    PropRiskTelemetryValidationResult,
-    PropRiskTelemetryValidator,
-)
-from .prop_rule_cache import (
-    InMemoryPropFirmRuleCache,
-    JsonFilePropFirmRuleCache,
-    PropFirmRuleCache,
-    PropFirmRuleCacheEntry,
-    PropFirmRuleCacheKey,
-)
-from .prop_rule_research import (
-    DEFAULT_PROP_FIRM_PROVIDER_RECORDS,
-    JsonLLMPropFirmRuleExtractor,
-    PropFirmIdentityStatus,
-    PropFirmProviderRecord,
-    PropFirmProviderRegistry,
-    PropFirmRuleExtractor,
-    PropFirmRuleResearchEngine,
-    PropFirmRuleResearchRequest,
-    PropFirmRuleResearchResult,
-    PropFirmRuleResearchStatus,
-    PropFirmRuleSearchClient,
-    PropFirmRuleSnapshot,
-    PropFirmSearchHit,
-    TavilyPropFirmRuleSearchClient,
-)
 from .risk_normalization import (
     BrokerRiskNormalizationResult,
     BrokerRiskNormalizationStatus,
@@ -118,13 +65,6 @@ from .supervision import (
 from .symbols import BrokerSymbolMap, SymbolMappingError
 
 __all__ = [
-    "AccountClassification",
-    "AccountClassificationSource",
-    "AccountClassificationStatus",
-    "AccountRiskBaseResolver",
-    "AccountRiskBaseResult",
-    "AccountRiskBaseStatus",
-    "AccountRiskProfile",
     "BrokerAccountSnapshot",
     "BrokerAdapter",
     "BrokerCapabilities",
@@ -155,16 +95,9 @@ __all__ = [
     "CTraderTickValueSnapshot",
     "CTraderTokenSet",
     "CTraderUniversalReadOnlyAdapter",
-    "DEFAULT_PROP_FIRM_PROVIDER_RECORDS",
     "ExchangeFuturesSpec",
-    "FormulaCheck",
-    "FormulaCheckStatus",
     "FuturesContractResolution",
     "FuturesContractResolutionStatus",
-    "InMemoryPropFirmRuleCache",
-    "JsonFilePropFirmRuleCache",
-    "JsonLLMPropFirmRuleExtractor",
-    "JsonPropRiskTelemetrySource",
     "NINJATRADER_EQUITY_INDEX_FUTURES",
     "NinjaTraderBridgeError",
     "NinjaTraderDiscoveredAccount",
@@ -174,36 +107,7 @@ __all__ = [
     "NinjaTraderUniversalReadOnlyAdapter",
     "OrchestrationPolicy",
     "ParsedNinjaTraderContract",
-    "PropFirmComplianceEngine",
-    "PropFirmComplianceResult",
-    "PropFirmComplianceStatus",
-    "PropFirmFormulaAdapter",
-    "PropFirmFormulaRegistry",
-    "PropFirmIdentityStatus",
-    "PropFirmLiveMetrics",
-    "PropFirmProviderRecord",
-    "PropFirmProviderRegistry",
-    "PropFirmRiskLimits",
-    "PropFirmRuleCache",
-    "PropFirmRuleCacheEntry",
-    "PropFirmRuleCacheKey",
-    "PropFirmRuleExtractor",
-    "PropFirmRuleResearchEngine",
-    "PropFirmRuleResearchRequest",
-    "PropFirmRuleResearchResult",
-    "PropFirmRuleResearchStatus",
-    "PropFirmRuleSearchClient",
-    "PropFirmRuleSnapshot",
-    "PropFirmSearchHit",
-    "PropRiskTelemetryPolicy",
-    "PropRiskTelemetrySnapshot",
-    "PropRiskTelemetrySource",
-    "PropRiskTelemetryStatus",
-    "PropRiskTelemetryValidationResult",
-    "PropRiskTelemetryValidator",
-    "RiskBaseAccountAdapter",
     "SymbolMappingError",
-    "TavilyPropFirmRuleSearchClient",
     "TradeIntent",
     "canonicalize_symbol",
     "conservative_loss_conversion_rate",

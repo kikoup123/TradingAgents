@@ -1,4 +1,4 @@
-"""Phase 23: mixed personal/prop account risk bases and replication."""
+"""Phase 23: live-account-only risk sizing and multi-account replication."""
 
 from __future__ import annotations
 
@@ -6,31 +6,32 @@ from collections.abc import Sequence
 
 from tradingagents.brokers.contracts import OrchestrationPolicy, TradeIntent
 
-from .prop_accounts import ClassifiedManagedAccount, MixedAccountExecutionManager
+from .multi_account import ManagedBrokerAccount, MultiAccountExecutionManager
 
 
-class LondresPhase23MixedAccountRiskEngine:
-    """Prepare one Londres setup across mixed personal and prop accounts.
+class LondresPhase23LiveAccountRiskEngine:
+    """Prepare one Londres setup across live brokerage accounts.
 
-    Personal accounts use actual account equity as the 3/5/10% risk base. Prop
-    accounts use the smallest verified active loss buffer, never their nominal
-    advertised account size. Every account remains independently sized and no
-    broker order is authorized or submitted by this phase.
+    Every enabled account sizes independently from its current broker-reported
+    equity and the selected 3/5/10% risk tier. The engine replicates trade intent,
+    never raw lots/contracts, and never submits an order.
     """
 
     def __init__(self) -> None:
-        self.manager = MixedAccountExecutionManager()
+        self.manager = MultiAccountExecutionManager()
 
     def prepare(
         self,
         *,
         intent: TradeIntent,
-        accounts: Sequence[ClassifiedManagedAccount],
+        accounts: Sequence[ManagedBrokerAccount],
         policy: OrchestrationPolicy = OrchestrationPolicy.BEST_EFFORT,
     ) -> dict:
         result = self.manager.prepare(intent=intent, accounts=tuple(accounts), policy=policy)
         payload = result.to_dict()
-        payload["phase"] = "LONDRES_PHASE23_MIXED_ACCOUNT_PROP_RISK_PREPARATION"
+        payload["phase"] = "LONDRES_PHASE23_LIVE_ACCOUNT_RISK_PREPARATION"
+        payload["risk_base_mode"] = "CURRENT_BROKER_ACCOUNT_EQUITY"
+        payload["account_scope"] = "LIVE_BROKERAGE_ACCOUNTS_ONLY"
         payload["execution_enabled"] = False
         payload["order_submission_enabled"] = False
         payload["order_authorized"] = False
@@ -39,4 +40,4 @@ class LondresPhase23MixedAccountRiskEngine:
 
     @staticmethod
     def state_update(context: dict) -> dict:
-        return {"mixed_account_risk_state": context}
+        return {"live_account_risk_state": context}

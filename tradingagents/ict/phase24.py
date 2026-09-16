@@ -1,4 +1,4 @@
-"""Phase 24: NinjaTrader read-only discovery, rollover and mixed-account preparation."""
+"""Phase 24: NinjaTrader read-only discovery, rollover and live-account preparation."""
 
 from __future__ import annotations
 
@@ -7,26 +7,17 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
-from tradingagents.brokers.account_risk import (
-    AccountClassification,
-    AccountClassificationSource,
-    AccountRiskProfile,
-    PropFirmRiskLimits,
-)
 from tradingagents.brokers.contracts import OrchestrationPolicy, TradeIntent, canonicalize_symbol
 from tradingagents.brokers.ninjatrader import (
     NinjaTraderDiscoveredAccount,
     NinjaTraderUniversalReadOnlyAdapter,
 )
 from tradingagents.brokers.ninjatrader_futures import NINJATRADER_EQUITY_INDEX_FUTURES
-from tradingagents.brokers.supervision import (
-    BrokerConnectionSupervisor,
-    BrokerSupervisionPolicy,
-)
+from tradingagents.brokers.supervision import BrokerConnectionSupervisor, BrokerSupervisionPolicy
 from tradingagents.brokers.symbols import BrokerSymbolMap
 
 from .multi_account import ManagedBrokerAccount, MultiAccountBatchStatus
-from .prop_accounts import ClassifiedManagedAccount, MixedAccountExecutionManager
+from .phase23 import LondresPhase23LiveAccountRiskEngine
 from .risk_sizing import ALLOWED_RISK_FRACTIONS
 
 
@@ -43,14 +34,11 @@ class Phase24AccountStatus(str, Enum):
 
 @dataclass(frozen=True)
 class NinjaTraderAccountBinding:
-    """Private user/configuration binding for one discovered NinjaTrader account."""
+    """Private binding for one live NinjaTrader brokerage account."""
 
     account_alias: str
     root_map: dict[str, str]
     risk_fraction: float
-    configured_classification: AccountClassification | None = None
-    classification_source: AccountClassificationSource = AccountClassificationSource.UNKNOWN
-    prop_limits: PropFirmRiskLimits | None = None
     enabled: bool = True
     max_risk_cash: float | None = None
 
@@ -83,8 +71,6 @@ class Phase24AccountPlan:
     canonical_symbol: str
     selected_root: str | None
     active_contract: str | None
-    detected_classification: str | None
-    classification_metadata_verified: bool
     supervision_state: dict[str, Any] | None
     phase23_account_plan: dict[str, Any] | None
     preparation_ready: bool
@@ -96,6 +82,7 @@ class Phase24AccountPlan:
         payload = asdict(self)
         payload["status"] = self.status.value
         payload["account_environment"] = "HIDDEN_INTERNAL"
+        payload["account_scope"] = "LIVE_BROKERAGE_ACCOUNTS_ONLY"
         payload["read_only"] = True
         payload["order_submission_enabled"] = False
         payload["order_authorized"] = False
@@ -132,7 +119,9 @@ class Phase24MultiAccountPlan:
             "skipped_accounts": self.skipped_accounts,
             "batch_ready_for_future_execution": self.batch_ready_for_future_execution,
             "platform": "NINJATRADER",
-            "replication_mode": "ONE_TRADE_INTENT_PER_ACCOUNT_INDEPENDENT_RISK_AND_CONTRACT_PLAN",
+            "replication_mode": "ONE_TRADE_INTENT_PER_ACCOUNT_INDEPENDENT_EQUITY_RISK_AND_CONTRACT_PLAN",
+            "risk_base_mode": "CURRENT_BROKER_ACCOUNT_EQUITY",
+            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
             "account_environment": "HIDDEN_INTERNAL",
             "read_only": True,
             "execution_enabled": False,
@@ -144,12 +133,12 @@ class Phase24MultiAccountPlan:
 
 
 class LondresPhase24NinjaTraderReadOnlyEngine:
-    """Prepare mixed NinjaTrader accounts using verified local read-only data."""
+    """Prepare live NinjaTrader accounts from verified local read-only data."""
 
     def __init__(self, adapter: NinjaTraderUniversalReadOnlyAdapter) -> None:
         self.adapter = adapter
         self._supervisor = BrokerConnectionSupervisor()
-        self._phase23 = MixedAccountExecutionManager()
+        self._phase23 = LondresPhase23LiveAccountRiskEngine()
 
     def discover(self) -> dict[str, Any]:
         accounts = self.adapter.discover_accounts()
@@ -158,6 +147,7 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
             "platform": "NINJATRADER",
             "bridge": self.adapter.bridge_metadata(),
             "accounts": [account.to_dict() for account in accounts],
+            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
             "account_environment": "HIDDEN_INTERNAL",
             "read_only": True,
             "execution_enabled": False,
@@ -194,33 +184,33 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
         if enabled == 0:
             status = MultiAccountBatchStatus.NO_ENABLED_ACCOUNTS
             batch_ready = False
-            reasons = ("NO_ENABLED_NINJATRADER_ACCOUNTS",)
+            reasons = ("NO_ENABLED_NINJATRADER_LIVE_ACCOUNTS",)
         elif policy is OrchestrationPolicy.ALL_OR_NONE:
             batch_ready = ready == enabled
             status = MultiAccountBatchStatus.READY if batch_ready else MultiAccountBatchStatus.BLOCKED
             reasons = (
-                "ALL_OR_NONE_REQUIRES_EVERY_NINJATRADER_ACCOUNT_TO_PASS_PHASE24",
+                "ALL_OR_NONE_REQUIRES_EVERY_NINJATRADER_LIVE_ACCOUNT_TO_PASS_PHASE24",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             )
         elif ready == enabled:
             status = MultiAccountBatchStatus.READY
             batch_ready = True
             reasons = (
-                "ALL_ENABLED_NINJATRADER_ACCOUNTS_READY_FOR_FUTURE_EXECUTION_ADAPTER",
+                "ALL_ENABLED_NINJATRADER_LIVE_ACCOUNTS_PREPARED_INDEPENDENTLY",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             )
         elif ready > 0:
             status = MultiAccountBatchStatus.PARTIAL_READY
             batch_ready = True
             reasons = (
-                "BEST_EFFORT_ISOLATES_BLOCKED_NINJATRADER_ACCOUNTS",
+                "BEST_EFFORT_ISOLATES_BLOCKED_NINJATRADER_LIVE_ACCOUNTS",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             )
         else:
             status = MultiAccountBatchStatus.BLOCKED
             batch_ready = False
             reasons = (
-                "NO_NINJATRADER_ACCOUNT_PASSED_PHASE24_PREPARATION",
+                "NO_NINJATRADER_LIVE_ACCOUNT_PASSED_PHASE24_PREPARATION",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             )
 
@@ -240,7 +230,7 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
             reason_codes=reasons,
         )
         payload = result.to_dict()
-        payload["phase"] = "LONDRES_PHASE24_NINJATRADER_READ_ONLY_PREPARATION"
+        payload["phase"] = "LONDRES_PHASE24_NINJATRADER_LIVE_ACCOUNT_READ_ONLY_PREPARATION"
         payload["bridge"] = self.adapter.bridge_metadata()
         return payload
 
@@ -337,13 +327,6 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
                 reason=f"NINJATRADER_SUPERVISION_{supervision.status.value}",
             )
 
-        risk_profile = AccountRiskProfile(
-            account_alias=binding.account_alias,
-            configured_classification=binding.configured_classification,
-            classification_source=binding.classification_source,
-            detected_classification=discovered.detected_classification,
-            prop_limits=binding.prop_limits,
-        )
         managed = ManagedBrokerAccount(
             account_alias=binding.account_alias,
             adapter=self.adapter,
@@ -357,16 +340,11 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
         )
         phase23 = self._phase23.prepare(
             intent=intent,
-            accounts=(
-                ClassifiedManagedAccount(
-                    managed_account=managed,
-                    risk_profile=risk_profile,
-                ),
-            ),
+            accounts=(managed,),
             policy=OrchestrationPolicy.BEST_EFFORT,
         )
-        phase23_account = phase23.accounts[0].to_dict()
-        if not phase23.accounts[0].preparation_ready:
+        phase23_account = phase23["accounts"][0]
+        if not phase23_account.get("preparation_ready"):
             return self._blocked(
                 binding=binding,
                 canonical=canonical,
@@ -376,7 +354,7 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
                 active_contract=contract.active_contract,
                 supervision_state=supervision_state,
                 phase23_account_plan=phase23_account,
-                reason="PHASE23_ACCOUNT_RISK_OR_MULTI_ACCOUNT_PREPARATION_BLOCKED",
+                reason="PHASE23_LIVE_ACCOUNT_EQUITY_RISK_PREPARATION_BLOCKED",
             )
 
         return Phase24AccountPlan(
@@ -387,12 +365,6 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
             canonical_symbol=canonical,
             selected_root=root,
             active_contract=contract.active_contract,
-            detected_classification=(
-                discovered.detected_classification.value
-                if discovered.detected_classification is not None
-                else None
-            ),
-            classification_metadata_verified=discovered.classification_metadata_verified,
             supervision_state=supervision_state,
             phase23_account_plan=phase23_account,
             preparation_ready=True,
@@ -401,7 +373,7 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
             reason_codes=(
                 *contract.reason_codes,
                 "NINJATRADER_ACCOUNT_DATA_PASSED_PHASE22_SUPERVISION",
-                "PHASE23_PERSONAL_OR_PROP_RISK_BASE_APPLIED_PER_ACCOUNT",
+                "PHASE23_LIVE_ACCOUNT_EQUITY_RISK_BASE_APPLIED",
                 "RAW_CONTRACT_COUNT_NOT_COPIED_BETWEEN_ACCOUNTS",
                 "NO_BROKER_ORDER_SUBMISSION_IN_PHASE24",
             ),
@@ -428,14 +400,6 @@ class LondresPhase24NinjaTraderReadOnlyEngine:
             canonical_symbol=canonical,
             selected_root=selected_root,
             active_contract=active_contract,
-            detected_classification=(
-                discovered.detected_classification.value
-                if discovered is not None and discovered.detected_classification is not None
-                else None
-            ),
-            classification_metadata_verified=(
-                discovered.classification_metadata_verified if discovered is not None else False
-            ),
             supervision_state=supervision_state,
             phase23_account_plan=phase23_account_plan,
             preparation_ready=False,
