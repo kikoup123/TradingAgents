@@ -87,6 +87,7 @@ from .phase17 import LondresPhase17Engine
 from .phase18 import LondresPhase18ReadOnlyBrokerEngine
 from .phase19 import LondresPhase19BrokerRegistryEngine
 from .phase20 import LondresPhase20MultiAccountEngine
+from .phase21 import LondresPhase21BrokerRiskEngine
 from .risk_sizing import (
     ALLOWED_RISK_FRACTIONS,
     MAX_ACCOUNT_RISK_FRACTION,
@@ -210,6 +211,7 @@ __all__ = [
     "LondresPhase18ReadOnlyBrokerEngine",
     "LondresPhase19BrokerRegistryEngine",
     "LondresPhase20MultiAccountEngine",
+    "LondresPhase21BrokerRiskEngine",
     "CSDPivotReference",
     "CSDResult",
     "CSDEngine",
