@@ -27,18 +27,22 @@ final class PaperTradingStore: ObservableObject {
         ensurePresets()
     }
 
-    func register(signal: LondresSignal) {
+    func register(signal: LondresSignal, signaledAt: Date? = nil) {
         guard signal.status == .valid, signal.geometry != nil else { return }
 
         for index in accounts.indices {
             guard !accounts[index].trades.contains(where: { $0.signalID == signal.id }) else { continue }
-            accounts[index].trades.insert(PaperTrade(signal: signal), at: 0)
+            accounts[index].trades.insert(
+                PaperTrade(signal: signal, signaledAt: signaledAt),
+                at: 0
+            )
         }
         persist()
     }
 
     func process(candle: MarketCandle) {
         guard candle.isValid else { return }
+        guard candle.timeframe == .fiveMinute else { return }
 
         var changed = false
         for accountIndex in accounts.indices {
@@ -75,11 +79,23 @@ final class PaperTradingStore: ObservableObject {
                         account.trades[tradeIndex] = trade
                         changed = true
                     } else if targetTouched {
-                        close(&trade, in: &account, at: trade.geometry.target, rMultiple: trade.geometry.rewardToRisk, time: candle.openTime)
+                        close(
+                            &trade,
+                            in: &account,
+                            at: trade.geometry.target,
+                            rMultiple: trade.geometry.rewardToRisk,
+                            time: candle.openTime
+                        )
                         account.trades[tradeIndex] = trade
                         changed = true
                     } else if stopTouched {
-                        close(&trade, in: &account, at: trade.geometry.stop, rMultiple: -1, time: candle.openTime)
+                        close(
+                            &trade,
+                            in: &account,
+                            at: trade.geometry.stop,
+                            rMultiple: -1,
+                            time: candle.openTime
+                        )
                         account.trades[tradeIndex] = trade
                         changed = true
                     }
