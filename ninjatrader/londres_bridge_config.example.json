@@ -1,0 +1,11 @@
+{
+  "publish_interval_ms": 500,
+  "max_quantity_by_root": {
+    "NQ": 10,
+    "MNQ": 50,
+    "ES": 10,
+    "MES": 50,
+    "YM": 10,
+    "MYM": 50
+  }
+}
