@@ -299,7 +299,6 @@ class LondresPhase28DynamicPropRiskEngine:
             )
             phase27_accounts = {item["account_alias"]: item for item in phase27["accounts"]}
 
-        original_by_alias = {profile.account_alias: profile for profile in profiles}
         eligible_by_alias = {profile.account_alias: profile for profile in eligible}
         plans: list[Phase28AccountPlan] = []
         for profile in profiles:
