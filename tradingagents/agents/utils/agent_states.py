@@ -189,9 +189,13 @@ class AgentState(MessagesState):
         dict,
         "Phase 22 broker supervision heartbeat with reconnect attempts, quote freshness, tick-value freshness, masked account state, and fail-closed execution-data readiness",
     ]
+    mixed_account_risk_state: Annotated[
+        dict,
+        "Phase 23 per-account PERSONAL/PROP_FIRM classification and mixed-account replication: personal accounts size from actual equity; prop accounts size from the stricter remaining daily-loss/max-or-trailing-drawdown buffer, never nominal account size",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization -> broker connection/data freshness supervision context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization -> broker connection/data freshness supervision -> mixed personal/prop per-account risk-base context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
