@@ -1,4 +1,4 @@
-"""Structured Londres stop-source choice and hard validation for the Trader."""
+"""Structured Londres stop/risk choices and hard validation for the Trader."""
 
 from __future__ import annotations
 
@@ -15,14 +15,32 @@ class TraderStopSource(str, Enum):
     NONE = "NONE"
 
 
+class TraderRiskLevel(str, Enum):
+    RISK_3 = "3%"
+    RISK_5 = "5%"
+    RISK_10 = "10%"
+    NONE = "NONE"
+
+    @property
+    def fraction(self) -> float | None:
+        return {
+            TraderRiskLevel.RISK_3: 0.03,
+            TraderRiskLevel.RISK_5: 0.05,
+            TraderRiskLevel.RISK_10: 0.10,
+            TraderRiskLevel.NONE: None,
+        }[self]
+
+
 class LondresTraderProposal(TraderProposal):
-    """Trader proposal with a constrained structural-stop choice.
+    """Trader proposal with constrained structural-stop and risk-tier choices.
 
     ``stop_anchor_price`` is not the executable broker stop. It is the exact
     deterministic structural boundary selected by the Trader. A later risk
     layer applies the instrument-specific tick/buffer beyond that anchor and
-    derives volume from the resulting entry-to-stop range. The Trader is never
-    the sizing authority on the Londres path.
+    derives volume from the resulting entry-to-stop range.
+
+    The Trader may choose only 3%, 5%, or 10% account risk. Ten percent is a
+    hard ceiling. The Trader never chooses lots/contracts directly.
     """
 
     selected_stop_source: TraderStopSource = Field(
@@ -30,6 +48,13 @@ class LondresTraderProposal(TraderProposal):
         description=(
             "Choose exactly one deterministic structural stop source supplied in "
             "the prompt: IOF_RANGE or SMT_PROTECTED. Use NONE only for Hold/Wait."
+        ),
+    )
+    selected_risk_level: TraderRiskLevel = Field(
+        default=TraderRiskLevel.NONE,
+        description=(
+            "Choose exactly one approved Londres account-risk tier for an active trade: "
+            "3%, 5%, or 10%. Ten percent is the hard maximum. Use NONE only for Hold/Wait."
         ),
     )
     stop_anchor_price: float | None = Field(
@@ -46,13 +71,20 @@ class LondresTraderProposal(TraderProposal):
             "MMXM, order-flow and target geometry."
         ),
     )
+    risk_selection_reason: str | None = Field(
+        default=None,
+        description=(
+            "Briefly explain why 3%, 5%, or 10% risk was selected from the approved tiers. "
+            "Do not translate this into lots/contracts; the risk engine sizes the trade."
+        ),
+    )
 
 
 def validate_londres_trader_stop(
     proposal: LondresTraderProposal,
     stop_options: dict,
 ) -> tuple[LondresTraderProposal, dict]:
-    """Accept only deterministic stop structure and strip discretionary sizing."""
+    """Accept only deterministic stop structure and approved 3/5/10 risk tiers."""
     candidates = {
         candidate["source"]: candidate
         for candidate in stop_options.get("candidates", [])
@@ -71,6 +103,7 @@ def validate_londres_trader_stop(
         clean = proposal.model_copy(
             update={
                 "selected_stop_source": TraderStopSource.NONE,
+                "selected_risk_level": TraderRiskLevel.NONE,
                 "stop_anchor_price": None,
                 "stop_loss": None,
                 "position_sizing": None,
@@ -80,6 +113,9 @@ def validate_londres_trader_stop(
             "valid": True,
             "selected_source": TraderStopSource.NONE.value,
             "selected_anchor_price": None,
+            "selected_risk_level": TraderRiskLevel.NONE.value,
+            "selected_risk_fraction": None,
+            "hard_risk_ceiling_fraction": 0.10,
             "placement": None,
             "reason": "TRADER_CHOSE_HOLD",
             "position_sizing_authority": "DETERMINISTIC_RISK_ENGINE",
@@ -93,6 +129,9 @@ def validate_londres_trader_stop(
     if not candidates:
         return _force_hold(proposal, "NO_VALID_STRUCTURAL_STOP_OPTION")
 
+    if proposal.selected_risk_level == TraderRiskLevel.NONE:
+        return _force_hold(proposal, "ACTIVE_TRADE_REQUIRES_3_5_OR_10_PERCENT_RISK_TIER")
+
     if len(candidates) == 1:
         source, candidate = next(iter(candidates.items()))
     else:
@@ -105,8 +144,8 @@ def validate_londres_trader_stop(
         update={
             "selected_stop_source": TraderStopSource(source),
             "stop_anchor_price": float(candidate["anchor_price"]),
-            # Phase 10 selects the structural anchor only. Do not permit the
-            # LLM to manufacture a buffer, broker stop, or position size.
+            # The Trader selects structural stop source + approved risk tier,
+            # never executable stop buffer or broker volume.
             "stop_loss": None,
             "position_sizing": None,
         }
@@ -115,6 +154,10 @@ def validate_londres_trader_stop(
         "valid": True,
         "selected_source": source,
         "selected_anchor_price": float(candidate["anchor_price"]),
+        "selected_risk_level": validated.selected_risk_level.value,
+        "selected_risk_fraction": validated.selected_risk_level.fraction,
+        "hard_risk_ceiling_fraction": 0.10,
+        "allowed_risk_levels": ["3%", "5%", "10%"],
         "placement": candidate.get("placement"),
         "distance_from_current": candidate.get("distance_from_current"),
         "structural_source": candidate.get("structural_source"),
@@ -144,6 +187,7 @@ def _force_hold(
             "stop_loss": None,
             "position_sizing": None,
             "selected_stop_source": TraderStopSource.NONE,
+            "selected_risk_level": TraderRiskLevel.NONE,
             "stop_anchor_price": None,
         }
     )
@@ -151,6 +195,9 @@ def _force_hold(
         "valid": False,
         "selected_source": TraderStopSource.NONE.value,
         "selected_anchor_price": None,
+        "selected_risk_level": TraderRiskLevel.NONE.value,
+        "selected_risk_fraction": None,
+        "hard_risk_ceiling_fraction": 0.10,
         "placement": None,
         "reason": reason,
         "position_sizing_authority": "DETERMINISTIC_RISK_ENGINE",
@@ -173,6 +220,10 @@ def render_londres_trader_proposal(proposal: LondresTraderProposal) -> str:
         parts.extend(["", f"**Structural Stop Anchor**: {proposal.stop_anchor_price}"])
     if proposal.stop_selection_reason:
         parts.extend(["", f"**Stop Selection Rationale**: {proposal.stop_selection_reason}"])
+    if proposal.selected_risk_level != TraderRiskLevel.NONE:
+        parts.extend(["", f"**Selected Account Risk**: {proposal.selected_risk_level.value}"])
+    if proposal.risk_selection_reason:
+        parts.extend(["", f"**Risk Selection Rationale**: {proposal.risk_selection_reason}"])
     if proposal.stop_loss is not None:
         parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
     # Londres position size is intentionally never rendered from the LLM.
