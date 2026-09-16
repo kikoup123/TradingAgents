@@ -45,7 +45,7 @@ enum LondresMarketSnapshotError: Error, Equatable {
 struct LondresMarketSnapshotBuilder: Sendable {
     static let hierarchy = ["1W", "1D", "4H", "1H", "15m", "5m"]
 
-    private let frameRequests: [(key: String, timeframe: LondresTimeframe, limit: Int)] = [
+    private static let frameRequests: [(key: String, timeframe: LondresTimeframe, limit: Int)] = [
         ("1W", .weekly, 104),
         ("1D", .daily, 260),
         ("4H", .fourHour, 600),
@@ -54,12 +54,14 @@ struct LondresMarketSnapshotBuilder: Sendable {
         ("5m", .fiveMinute, 2_000)
     ]
 
+    init() {}
+
     func build(
         provider: any MarketDataProvider,
         plan: LondresMarketFeedPlan
     ) async throws -> LondresMarketSnapshot {
         var timeframeBars: [String: [MarketCandle]] = [:]
-        for request in frameRequests {
+        for request in Self.frameRequests {
             let bars = try await provider.candles(
                 symbol: plan.symbol,
                 timeframe: request.timeframe,
