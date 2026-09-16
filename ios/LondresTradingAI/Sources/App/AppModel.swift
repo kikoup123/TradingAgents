@@ -16,12 +16,7 @@ final class AppModel: ObservableObject {
     ) {
         self.localization = localization
         self.aiService = aiService
-
-        if signals.isEmpty {
-            self.signals = [Self.demoSignal()]
-        } else {
-            self.signals = signals
-        }
+        self.signals = signals
     }
 
     func evaluate(_ input: LondresSignalInput) {

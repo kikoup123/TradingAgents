@@ -2,6 +2,9 @@ import SwiftUI
 import StoreKit
 
 struct RootTabView: View {
+    @EnvironmentObject private var app: AppModel
+    @EnvironmentObject private var paper: PaperTradingStore
+
     var body: some View {
         TabView {
             NavigationStack { DashboardView() }
@@ -19,6 +22,18 @@ struct RootTabView: View {
             NavigationStack { SettingsView() }
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
+        .task {
+            trackValidatedSignals(app.signals)
+        }
+        .onChange(of: app.signals) { _, newSignals in
+            trackValidatedSignals(newSignals)
+        }
+    }
+
+    private func trackValidatedSignals(_ signals: [LondresSignal]) {
+        for signal in signals where signal.isActionable {
+            paper.register(signal: signal)
+        }
     }
 }
 
@@ -32,6 +47,12 @@ private struct DashboardView: View {
             VStack(alignment: .leading, spacing: 18) {
                 if let signal = app.signals.first {
                     SignalHeroCard(signal: signal)
+                } else {
+                    ContentUnavailableView(
+                        "Waiting for Market Analysis",
+                        systemImage: "waveform.path.ecg",
+                        description: Text("Validated Londres setups will appear here when the deterministic engine produces them.")
+                    )
                 }
 
                 let summary = app.performanceAnalyzer.summary(for: journal.trades)
@@ -79,7 +100,7 @@ private struct DashboardView: View {
                         }
                     }
 
-                    Text("Paper results are hypothetical and are not a guarantee of future returns.")
+                    Text("Every validated Londres signal is tracked automatically. Paper results are hypothetical and are not a guarantee of future returns.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -95,28 +116,36 @@ private struct DashboardView: View {
 private struct SignalsView: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var journal: JournalStore
-    @EnvironmentObject private var paper: PaperTradingStore
 
     var body: some View {
-        List {
-            ForEach(app.signals) { signal in
-                Section {
-                    SignalDetailContent(signal: signal)
-                    Button {
-                        journal.add(signal: signal)
-                    } label: {
-                        Label("Add to Journal", systemImage: "plus.circle")
-                    }
-                    .disabled(!signal.isActionable)
+        Group {
+            if app.signals.isEmpty {
+                ContentUnavailableView(
+                    "No Signals Yet",
+                    systemImage: "waveform.path.ecg",
+                    description: Text("The paper accounts remain at their starting balances until a validated Londres setup is generated.")
+                )
+            } else {
+                List {
+                    ForEach(app.signals) { signal in
+                        Section {
+                            SignalDetailContent(signal: signal)
+                            Button {
+                                journal.add(signal: signal)
+                            } label: {
+                                Label("Add to Journal", systemImage: "plus.circle")
+                            }
+                            .disabled(!signal.isActionable)
 
-                    Button {
-                        paper.register(signal: signal)
-                    } label: {
-                        Label("Track in $1K + $5K Demo Accounts", systemImage: "chart.line.uptrend.xyaxis")
+                            if signal.isActionable {
+                                Label("Automatically tracked in $1K + $5K demo accounts", systemImage: "checkmark.shield")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } header: {
+                            Text("\(signal.context.symbol) · \(signal.context.direction.rawValue.uppercased())")
+                        }
                     }
-                    .disabled(!signal.isActionable)
-                } header: {
-                    Text("\(signal.context.symbol) · \(signal.context.direction.rawValue.uppercased())")
                 }
             }
         }
@@ -204,6 +233,7 @@ private struct AnalyticsView: View {
 private struct SettingsView: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var subscriptions: SubscriptionStore
+    @State private var purchaseStatus: String?
 
     var body: some View {
         Form {
@@ -221,20 +251,43 @@ private struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(subscriptions.products, id: \.id) { product in
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text(product.displayName)
                             Text(product.displayPrice)
                                 .font(.headline)
+
                             if subscriptions.hasConfiguredIntroOffer(for: product) {
-                                Text(subscriptions.isEligibleForIntroOffer(product) ? "Eligible for introductory free trial" : "Introductory offer configured; this Apple ID is not eligible")
+                                Text(subscriptions.isEligibleForIntroOffer(product) ? "Eligible for 1 month free" : "1-month free trial configured; this Apple ID is not eligible")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+
+                            Button {
+                                purchase(product)
+                            } label: {
+                                if subscriptions.activeProductIDs.contains(product.id) {
+                                    Label("Active", systemImage: "checkmark.circle.fill")
+                                } else if subscriptions.isEligibleForIntroOffer(product) {
+                                    Text("Start 1 Month Free Trial")
+                                } else {
+                                    Text("Subscribe · \(product.displayPrice)")
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(subscriptions.activeProductIDs.contains(product.id))
                         }
+                        .padding(.vertical, 4)
                     }
                 }
+
+                if let purchaseStatus {
+                    Text(purchaseStatus)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Text(subscriptions.hasProAccess ? "Londres Pro active" : "Londres Pro not active")
-                Text("Target offer: 1 month free, then the normal subscription price. The free-trial duration and eligibility are controlled by App Store Connect and StoreKit.")
+                Text("The app only advertises the 1-month free trial when StoreKit reports that exact introductory offer and the Apple ID is eligible. Pricing and offer availability come from App Store Connect.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -245,6 +298,17 @@ private struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+    }
+
+    private func purchase(_ product: Product) {
+        Task {
+            do {
+                let activated = try await subscriptions.purchase(product)
+                purchaseStatus = activated ? "Subscription activated." : "Purchase was not completed."
+            } catch {
+                purchaseStatus = "Purchase could not be completed. Please try again."
+            }
+        }
     }
 }
 

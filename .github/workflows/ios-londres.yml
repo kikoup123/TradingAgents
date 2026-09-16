@@ -14,6 +14,10 @@ on:
       - 'docs/LONDRES_IOS_SIGNAL_APP.md'
       - '.github/workflows/ios-londres.yml'
 
+concurrency:
+  group: londres-ios-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-15

@@ -47,13 +47,15 @@ struct PaperPerformanceView: View {
                 }
             }
 
+#if DEBUG
             Section {
                 Button("Reset paper accounts", role: .destructive) {
                     paper.reset()
                 }
             } footer: {
-                Text("Resetting deletes only simulated paper-account history. It does not affect the trading journal or broker accounts.")
+                Text("Development-only reset. This control is excluded from release builds.")
             }
+#endif
         }
         .navigationTitle("Demo Performance")
     }
