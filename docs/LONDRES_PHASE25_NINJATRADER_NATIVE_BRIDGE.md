@@ -55,7 +55,7 @@ The snapshot is written to a temporary file, flushed, and atomically replaced so
 
 Phase 25 intentionally has **no guessed contract maximum**. Before a futures root can be marked `metadata_verified=true`, an explicit local maximum quantity must be configured.
 
-The repository example is fail-closed by default:
+Example:
 
 ```json
 {
@@ -71,9 +71,11 @@ The repository example is fail-closed by default:
 }
 ```
 
-Replace only the roots you actually intend to use with explicit positive limits taken from your broker/account policy. Zero means **unverified / blocked**, not zero-contract execution.
+The example is intentionally fail-closed: zero means the root is not verified for use. The local operator must replace only intended roots with explicit positive technical ceilings.
 
-These values are policy inputs. They are not automatically inferred from advertised prop account size and should not be treated as prop-firm daily-loss logic. Phase 23 still owns the personal-vs-prop risk base.
+These Phase 25 values are a **bridge-level technical ceiling**, not the final per-account policy cap. Phase 26 adds a separate account-local `max_contracts_by_root` check for each NinjaTrader account. A Phase 26 account cap may be lower than the Phase 25 bridge ceiling, and Phase 26 blocks rather than silently resizing when the independently risk-sized contract quantity exceeds that account cap.
+
+The Phase 25 values are not inferred from advertised prop account size and are not used as prop-firm daily-loss equity. Phase 23 still owns the personal-vs-prop risk base.
 
 If a root is missing or its configured maximum is not positive, Phase 25 publishes that instrument as unverified and Phase 24 fails closed for that path.
 
@@ -163,7 +165,7 @@ The quote timestamp is the **older** of the bid timestamp and ask timestamp. Thi
 3. Create/open an AddOn source file and use the contents of `ninjatrader/LondresReadOnlyBridge.cs`.
 4. Compile in NinjaScript Editor.
 5. Restart NinjaTrader after a clean compile if needed so the AddOn lifecycle starts cleanly.
-6. Create `<UserDataDir>\Londres\londres_bridge_config.json` and replace only the intended roots with explicit positive `max_quantity_by_root` limits.
+6. Create `<UserDataDir>\Londres\londres_bridge_config.json` with explicit positive `max_quantity_by_root` values only for intended roots.
 7. Confirm `<UserDataDir>\Londres\ninjatrader_snapshot.json` is being refreshed.
 8. Point the Phase 24 `NinjaTraderJsonBridgeTransport` at that snapshot file.
 
@@ -180,7 +182,7 @@ If NinjaTrader reports a C# compiler error, fix it against the installed NinjaTr
 - native C# compilation is not executed by Linux GitHub CI because NinjaTrader assemblies are proprietary/local;
 - the bridge is read-only and does not execute orders;
 - prop-firm account classification remains explicit/user-confirmed unless authoritative account metadata exists;
-- per-prop-firm rules such as news restrictions, consistency rules and payout rules are not yet encoded;
+- per-prop-firm consistency/scaling/payout formulas still require verified provider-specific implementations;
 - the current static futures risk path requires USD-denominated futures accounts;
-- max quantity is an explicit local policy input rather than a guessed broker/prop value;
+- Phase 25 max quantity is a local technical ceiling, while Phase 26 owns the stricter per-account contract policy;
 - post-fill slippage and live order-state lifecycle remain out of scope.
