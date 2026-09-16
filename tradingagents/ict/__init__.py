@@ -1,3 +1,4 @@
+from .break_even import BreakEvenContext, BreakEvenStatus, StructuralBreakEvenEngine
 from .csd import CSDEngine, CSDEvent, CSDPivotReference, CSDResult
 from .daily_profile import DAILY_ROLLOVER_HOUR, FIXED_UTC_MINUS_4, DailyProfileEngine
 from .delivery import PriceDeliveryEngine
@@ -68,6 +69,7 @@ from .phase12 import LondresPhase12Engine
 from .phase13 import LondresPhase13Engine
 from .phase14 import LondresPhase14Engine
 from .phase15 import LondresPhase15Engine
+from .phase16 import LondresPhase16Engine
 from .risk_sizing import (
     ALLOWED_RISK_FRACTIONS,
     MAX_ACCOUNT_RISK_FRACTION,
@@ -129,6 +131,9 @@ __all__ = [
     "RiskSizingEngine",
     "RiskSizingResult",
     "RiskSizingStatus",
+    "BreakEvenContext",
+    "BreakEvenStatus",
+    "StructuralBreakEvenEngine",
     "EntryEvent",
     "EntryExecutionContext",
     "EntryExecutionStatus",
@@ -174,6 +179,7 @@ __all__ = [
     "LondresPhase13Engine",
     "LondresPhase14Engine",
     "LondresPhase15Engine",
+    "LondresPhase16Engine",
     "CSDPivotReference",
     "CSDResult",
     "CSDEngine",
