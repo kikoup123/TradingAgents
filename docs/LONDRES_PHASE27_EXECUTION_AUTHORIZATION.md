@@ -36,16 +36,15 @@ SMT_DETECTED + CSD_CONFIRMED + IOF_ALIGNED
 
 Phase 27 fails closed unless the validated strategy context matches the exact `TradeIntent`:
 
-- direction;
-- canonical symbol;
-- exact entry price;
-- executable stop price;
-- selected target price;
-- selected exit mode.
+- execution-gate direction;
+- entry direction and exact entry price;
+- executable-stop direction and exact stop price;
+- trade-calculation direction, canonical symbol, selected target and exit mode;
+- Phase 17 pre-broker direction, canonical symbol and authorization state.
 
-A strategy context from one setup therefore cannot be combined with a Phase 26 account plan from another setup.
+A strategy context from one setup therefore cannot be combined with an account plan from another setup.
 
-Phase 26 `trade_id` and canonical symbol must also match the same intent.
+Phase 26 `trade_id`, canonical symbol and `batch_ready_for_future_execution` state must also match the same intent. Phase 26 account aliases must be present and unique.
 
 ## Multi-account quantity rule
 
@@ -59,23 +58,35 @@ For every NinjaTrader live account:
 contract_quantity = Phase 26 prepared_contracts
 ```
 
-Phase 26 already obtained that value by independently sizing the account from current broker-reported equity and its explicit 3% / 5% / 10% risk policy.
+Phase 26 obtained that value by independently sizing the account from current broker-reported equity and its explicit 3% / 5% / 10% risk policy.
 
 Phase 27 accepts only a positive integer futures quantity. It never rounds a fractional quantity into a tradable contract count.
+
+Before authorization, Phase 27 also re-verifies that:
+
+- the quantity does not exceed Phase 26 `max_contracts`;
+- Phase 24 is still represented as `READY` and preparation-ready in the handed-off plan;
+- Phase 24 and Phase 26 refer to the same canonical symbol and selected futures root;
+- the Phase 23 prepared quantity embedded in the Phase 24 plan equals the Phase 26 prepared quantity.
+
+This prevents a malformed or stale handoff payload from bypassing the account-specific sizing and contract-cap decision made upstream.
 
 ## Exact contract requirement
 
 An authorized account envelope requires:
 
 - account alias;
-- selected futures root;
-- active resolved NinjaTrader contract;
-- positive integer contract quantity;
+- canonical symbol matching the trade intent;
+- selected futures root whose verified exchange specification maps to that canonical symbol;
+- active resolved NinjaTrader quarterly contract;
+- positive integer contract quantity not exceeding the Phase 26 cap;
 - exact entry, stop, target, direction and exit mode.
 
-The active contract must belong to the selected Phase 26 root. For example, a Phase 26 `NQ` plan cannot authorize an `MNQ` active contract.
+The active contract is parsed with the same NinjaTrader `ROOT MM-YY` quarterly-contract rules used by the read-only rollover layer, and its parsed root must equal the Phase 26 selected root.
 
-There is no silent Standard/Micro substitution.
+For example, a Phase 26 `NQ` plan cannot authorize an `MNQ` or `ES` active contract, and an `NQ 11-26` symbol is rejected because November is not a supported quarterly equity-index contract month.
+
+There is no silent Standard/Micro substitution and no silent contract resizing.
 
 ## Authorization fingerprint
 
@@ -85,8 +96,10 @@ Every authorized account receives a deterministic SHA-256 fingerprint derived fr
 - account alias;
 - canonical symbol;
 - direction;
+- selected futures root;
 - active contract;
 - contract quantity;
+- Phase 26 maximum-contract cap;
 - entry;
 - stop;
 - target;
@@ -139,7 +152,7 @@ order_submission_enabled = false
 broker_order_placed = false
 ```
 
-No broker credential is stored in the authorization envelope.
+No broker credential is stored in the authorization envelope, and Phase 27 exposes no place/amend/cancel/flatten/ATM/close API.
 
 ## Files
 
@@ -149,4 +162,4 @@ No broker credential is stored in the authorization envelope.
 
 ## Next boundary
 
-A later phase can consume only Phase 27-authorized envelopes and implement the actual NinjaTrader order-submission adapter. That future layer should use the Phase 27 authorization fingerprint as part of an idempotency/duplicate-submission guard and must revalidate live quote/account state immediately before submission.
+A later phase may consume only Phase 27-authorized envelopes. Before any actual NinjaTrader submission capability is considered, that layer must revalidate current account state, current quote/market state, the authorization fingerprint and duplicate-submission/idempotency state immediately before submission.
