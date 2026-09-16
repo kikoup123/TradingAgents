@@ -230,7 +230,7 @@ def test_phase30_authorization_cannot_be_reused_for_different_command(tmp_path) 
 def test_best_effort_reserves_unaffected_account_when_other_conflicts(tmp_path) -> None:
     ledger = _ledger(tmp_path)
     engine = LondresPhase32ExactlyOnceShadowCommandEngine()
-    seed = _fp(alias="FP-SEED", phase31_char="d")
+    seed = _fp(alias="FP-SEED", phase31_char="c")
     engine.prepare(
         intent=_intent(),
         phase31_plan=_plan(seed),
@@ -254,7 +254,7 @@ def test_best_effort_reserves_unaffected_account_when_other_conflicts(tmp_path) 
 def test_all_or_none_conflict_rolls_back_new_reservations(tmp_path) -> None:
     ledger = _ledger(tmp_path)
     engine = LondresPhase32ExactlyOnceShadowCommandEngine()
-    seed = _fp(alias="FP-SEED", phase31_char="d")
+    seed = _fp(alias="FP-SEED", phase31_char="c")
     engine.prepare(
         intent=_intent(),
         phase31_plan=_plan(seed),
