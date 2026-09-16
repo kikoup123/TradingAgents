@@ -18,9 +18,11 @@ class TraderStopSource(str, Enum):
 class LondresTraderProposal(TraderProposal):
     """Trader proposal with a constrained structural-stop choice.
 
-    ``stop_anchor_price`` is not the executable broker stop.  It is the exact
-    deterministic structural boundary selected by the Trader.  A later risk
-    layer must apply the instrument-specific tick/buffer beyond that anchor.
+    ``stop_anchor_price`` is not the executable broker stop. It is the exact
+    deterministic structural boundary selected by the Trader. A later risk
+    layer applies the instrument-specific tick/buffer beyond that anchor and
+    derives volume from the resulting entry-to-stop range. The Trader is never
+    the sizing authority on the Londres path.
     """
 
     selected_stop_source: TraderStopSource = Field(
@@ -50,7 +52,7 @@ def validate_londres_trader_stop(
     proposal: LondresTraderProposal,
     stop_options: dict,
 ) -> tuple[LondresTraderProposal, dict]:
-    """Accept only a deterministic stop option and fail closed on bad choices."""
+    """Accept only deterministic stop structure and strip discretionary sizing."""
     candidates = {
         candidate["source"]: candidate
         for candidate in stop_options.get("candidates", [])
@@ -71,6 +73,7 @@ def validate_londres_trader_stop(
                 "selected_stop_source": TraderStopSource.NONE,
                 "stop_anchor_price": None,
                 "stop_loss": None,
+                "position_sizing": None,
             }
         )
         return clean, {
@@ -79,6 +82,7 @@ def validate_londres_trader_stop(
             "selected_anchor_price": None,
             "placement": None,
             "reason": "TRADER_CHOSE_HOLD",
+            "position_sizing_authority": "DETERMINISTIC_RISK_ENGINE",
             "order_authorized": False,
         }
 
@@ -100,9 +104,10 @@ def validate_londres_trader_stop(
         update={
             "selected_stop_source": TraderStopSource(source),
             "stop_anchor_price": float(candidate["anchor_price"]),
-            # Phase 10 selects the structural anchor only.  Do not permit the
-            # LLM to manufacture a buffer or broker stop before that rule exists.
+            # Phase 10 selects the structural anchor only. Do not permit the
+            # LLM to manufacture a buffer, broker stop, or position size.
             "stop_loss": None,
+            "position_sizing": None,
         }
     )
     selection = {
@@ -117,6 +122,8 @@ def validate_londres_trader_stop(
             if len(candidates) == 1
             else "TRADER_STRUCTURAL_STOP_SELECTION_ACCEPTED"
         ),
+        "position_sizing_authority": "DETERMINISTIC_RISK_ENGINE",
+        "manual_position_size_allowed": False,
         "order_authorized": False,
     }
     return validated, selection
@@ -145,6 +152,8 @@ def _force_hold(
         "selected_anchor_price": None,
         "placement": None,
         "reason": reason,
+        "position_sizing_authority": "DETERMINISTIC_RISK_ENGINE",
+        "manual_position_size_allowed": False,
         "order_authorized": False,
     }
 
@@ -165,7 +174,6 @@ def render_londres_trader_proposal(proposal: LondresTraderProposal) -> str:
         parts.extend(["", f"**Stop Selection Rationale**: {proposal.stop_selection_reason}"])
     if proposal.stop_loss is not None:
         parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
-    if proposal.position_sizing:
-        parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
+    # Londres position size is intentionally never rendered from the LLM.
     parts.extend(["", f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**"])
     return "\n".join(parts)
