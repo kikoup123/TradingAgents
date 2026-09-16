@@ -5,7 +5,16 @@ from copy import deepcopy
 
 import pytest
 
-from tradingagents.brokers import NINJATRADER_EQUITY_INDEX_FUTURES, BrokerSupervisionPolicy, FuturesContractResolutionStatus, NinjaTraderJsonBridgeTransport, NinjaTraderUniversalReadOnlyAdapter, OrchestrationPolicy, TradeIntent, parse_ninjatrader_contract_symbol
+from tradingagents.brokers import (
+    NINJATRADER_EQUITY_INDEX_FUTURES,
+    BrokerSupervisionPolicy,
+    FuturesContractResolutionStatus,
+    NinjaTraderJsonBridgeTransport,
+    NinjaTraderUniversalReadOnlyAdapter,
+    OrchestrationPolicy,
+    TradeIntent,
+    parse_ninjatrader_contract_symbol,
+)
 from tradingagents.ict import LondresPhase24NinjaTraderReadOnlyEngine, NinjaTraderAccountBinding
 
 NOW_MS = 1_800_000_000_000
