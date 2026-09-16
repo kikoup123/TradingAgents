@@ -514,24 +514,25 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private static string CurrencyToIso(Currency currency)
         {
-            switch (currency)
+            string name = currency.ToString();
+            switch (name)
             {
-                case Currency.UsDollar:
+                case "UsDollar":
                     return "USD";
-                case Currency.Euro:
+                case "Euro":
                     return "EUR";
-                case Currency.GreatBritainPound:
+                case "BritishPound":
                     return "GBP";
-                case Currency.JapaneseYen:
+                case "JapaneseYen":
                     return "JPY";
-                case Currency.CanadianDollar:
+                case "CanadianDollar":
                     return "CAD";
-                case Currency.AustralianDollar:
+                case "AustralianDollar":
                     return "AUD";
-                case Currency.SwissFranc:
+                case "SwissFranc":
                     return "CHF";
                 default:
-                    return currency.ToString().ToUpperInvariant();
+                    return name.ToUpperInvariant();
             }
         }
 
