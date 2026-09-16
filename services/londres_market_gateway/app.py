@@ -6,10 +6,10 @@ from typing import Annotated, AsyncIterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 
-from .databento_feed import DatabentoMarketFeed
 from .models import Bar, Quote, SUPPORTED_TIMEFRAMES, UTC
+from .rolling_databento_feed import RollingDatabentoMarketFeed
 
-feed = DatabentoMarketFeed()
+feed = RollingDatabentoMarketFeed()
 
 
 @asynccontextmanager
