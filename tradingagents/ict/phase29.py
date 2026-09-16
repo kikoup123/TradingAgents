@@ -3,7 +3,8 @@
 This phase brings the two CFD broker paths to the same deterministic preparation
 boundary: explicit broker identity, explicit symbol mapping, fresh supervised
 quotes/tick values, and independent sizing from each account's current equity.
-It does not authorize or submit orders.
+Demo/live environment remains private broker-routing metadata. It does not
+authorize or submit orders.
 """
 
 from __future__ import annotations
@@ -63,7 +64,7 @@ class Phase29AccountPlan:
         payload["venue"] = self.venue.value
         payload["broker_type"] = self.broker_type.value
         payload["status"] = self.status.value
-        payload["account_scope"] = "LIVE_BROKERAGE_ACCOUNTS_ONLY"
+        payload["account_scope"] = "BROKERAGE_ACCOUNTS"
         payload["account_environment"] = "HIDDEN_INTERNAL"
         payload["execution_enabled"] = False
         payload["order_submission_enabled"] = False
@@ -105,7 +106,7 @@ class Phase29BrokerParityPlan:
                 Phase29BrokerVenue.FP_MARKETS_CTRADER.value,
                 Phase29BrokerVenue.VANTAGE_MT5.value,
             ],
-            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
+            "account_scope": "BROKERAGE_ACCOUNTS",
             "account_environment": "HIDDEN_INTERNAL",
             "execution_enabled": False,
             "order_submission_enabled": False,
