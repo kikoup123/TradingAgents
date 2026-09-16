@@ -1,4 +1,4 @@
-"""Universal broker-contract wrapper for the Phase 18 cTrader connector."""
+"""Universal broker-contract wrapper for the read-only cTrader connector."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ class CTraderUniversalReadOnlyAdapter:
 
     cTrader platform capabilities are described separately from connection
     permissions. This adapter remains read-only and has no order submission
-    method. Tick value in account currency is intentionally unresolved until the
-    broker-native conversion phase is implemented.
+    method. When the hardened Phase 21 connector is used, tick value is resolved
+    from cTrader Open API conversion data into the account deposit currency.
     """
 
     def __init__(
@@ -95,11 +95,34 @@ class CTraderUniversalReadOnlyAdapter:
         min_volume = int(snapshot["min_volume_protocol"]) / 100.0
         max_volume = int(snapshot["max_volume_protocol"]) / 100.0
         step_volume = int(snapshot["step_volume_protocol"]) / 100.0
+
+        tick_value = None
+        tick_currency = None
+        tick_source = None
+        tick_timestamp = None
+        valuation_model = None
+        resolver = getattr(self._connector, "tick_value_snapshot", None)
+        if resolver is not None:
+            valuation = resolver(broker_symbol)
+            expected_tick = 10.0 ** (-digits)
+            resolved_tick = float(valuation["tick_size"])
+            if abs(resolved_tick - expected_tick) > 1e-12:
+                raise ValueError("cTrader tick valuation does not match symbol tick geometry")
+            tick_value = float(valuation["tick_value_account_currency"])
+            tick_currency = str(valuation["account_currency"])
+            tick_source = str(valuation.get("tick_value_source") or "CTRADER_OPEN_API")
+            tick_timestamp = valuation.get("conversion_timestamp_ms")
+            valuation_model = str(valuation.get("valuation_model") or "CTRADER_OPEN_API")
+
         return BrokerInstrumentSpec(
             canonical_symbol=canonicalize_symbol(canonical_symbol),
             broker_symbol=str(snapshot["symbol"]),
             tick_size=10.0 ** (-digits),
-            tick_value_account_currency=None,
+            tick_value_account_currency=tick_value,
+            tick_value_currency=tick_currency,
+            tick_value_source=tick_source,
+            tick_value_timestamp_ms=(int(tick_timestamp) if tick_timestamp is not None else None),
+            valuation_model=valuation_model,
             volume_step=step_volume,
             min_volume=min_volume,
             max_volume=max_volume,
