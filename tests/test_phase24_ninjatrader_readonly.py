@@ -46,9 +46,9 @@ def _payload() -> dict:
         "bridge_status": "CONNECTED",
         "generated_at_ms": NOW_MS - 100,
         "accounts": [
-            {"account_key": "private-live-a", "masked_account": "••••1001", "provider": "Broker A", "connected": True, "currency": "USD", "balance": 20_000, "equity": 20_000, "used_margin": 0, "free_margin": 20_000},
-            {"account_key": "private-live-b", "masked_account": "••••2002", "provider": "Broker B", "connected": True, "currency": "USD", "balance": 40_000, "equity": 40_000, "used_margin": 0, "free_margin": 40_000},
-            {"account_key": "private-live-c", "masked_account": "••••3003", "provider": "Broker C", "connected": True, "currency": "USD", "balance": 20_000, "equity": 20_000, "used_margin": 0, "free_margin": 20_000},
+            {"account_key": "private-route-a", "masked_account": "••••1001", "provider": "Broker A", "connected": True, "currency": "USD", "balance": 20_000, "equity": 20_000, "used_margin": 0, "free_margin": 20_000, "private_environment": "REAL"},
+            {"account_key": "private-route-b", "masked_account": "••••2002", "provider": "Broker B", "connected": True, "currency": "USD", "balance": 40_000, "equity": 40_000, "used_margin": 0, "free_margin": 40_000, "private_environment": "DEMO"},
+            {"account_key": "private-route-c", "masked_account": "••••3003", "provider": "Broker C", "connected": True, "currency": "USD", "balance": 20_000, "equity": 20_000, "used_margin": 0, "free_margin": 20_000, "private_environment": "REAL"},
         ],
         "instruments": {symbol: _instrument(root, symbol) for root, symbol in contracts.items()},
         "quotes": {symbol: {"bid": 24_999.75, "ask": 25_000.00, "timestamp_ms": NOW_MS - 1_000} for symbol in contracts.values()},
@@ -84,18 +84,42 @@ def test_quarterly_contract_parser_rejects_non_quarter_months() -> None:
         parse_ninjatrader_contract_symbol("NQ 11-26")
 
 
-def test_adapter_discovers_only_sanitized_live_account_metadata() -> None:
+def test_adapter_discovers_sanitized_demo_and_live_routes_without_environment_leak() -> None:
     adapter = NinjaTraderUniversalReadOnlyAdapter(MemoryBridge(_payload()))
     accounts = adapter.discover_accounts()
     assert len(accounts) == 3
     assert {item.masked_account for item in accounts} == {"••••1001", "••••2002", "••••3003"}
     assert all(item.account_alias.startswith("NT-") for item in accounts)
     assert all("private-" not in item.account_alias for item in accounts)
-    rendered = str([item.to_dict() for item in accounts])
-    assert "classification" not in rendered.lower()
-    assert adapter.public_status()["account_scope"] == "LIVE_BROKERAGE_ACCOUNTS_ONLY"
+    rendered = str([item.to_dict() for item in accounts]).upper()
+    assert "PRIVATE_ENVIRONMENT" not in rendered
+    assert "DEMO" not in rendered
+    assert "REAL" not in rendered
+    assert adapter.public_status()["account_scope"] == "BROKERAGE_ACCOUNTS"
+    assert adapter.public_status()["account_environment"] == "HIDDEN_INTERNAL"
     assert not hasattr(adapter, "place_order")
     assert not hasattr(adapter, "submit_order")
+
+
+def test_phase24_output_keeps_account_environment_hidden() -> None:
+    adapter = NinjaTraderUniversalReadOnlyAdapter(MemoryBridge(_payload()))
+    aliases = _aliases(adapter)
+    engine = LondresPhase24NinjaTraderReadOnlyEngine(adapter)
+    result = engine.prepare(
+        intent=_intent(),
+        bindings=(
+            NinjaTraderAccountBinding(aliases["••••1001"], {"NASDAQ": "NQ"}, 0.03),
+            NinjaTraderAccountBinding(aliases["••••2002"], {"NASDAQ": "NQ"}, 0.03),
+        ),
+        now_ms=NOW_MS,
+        supervision_policy=_policy(),
+    )
+    assert result["account_scope"] == "BROKERAGE_ACCOUNTS"
+    assert result["account_environment"] == "HIDDEN_INTERNAL"
+    rendered = str(result).upper()
+    assert "PRIVATE_ENVIRONMENT" not in rendered
+    assert "DEMO" not in rendered
+    assert "REAL" not in rendered
 
 
 def test_verified_rollover_resolves_exact_contract_and_never_micro_substitutes() -> None:
@@ -135,7 +159,7 @@ def test_json_bridge_transport_is_read_only_and_reloads(tmp_path) -> None:
     assert transport.reconnect()["status"] == "DISCONNECTED"
 
 
-def test_three_live_accounts_prepare_same_trade_from_their_own_equity() -> None:
+def test_three_accounts_prepare_same_trade_from_their_own_equity() -> None:
     adapter = NinjaTraderUniversalReadOnlyAdapter(MemoryBridge(_payload()))
     aliases = _aliases(adapter)
     engine = LondresPhase24NinjaTraderReadOnlyEngine(adapter)
@@ -173,7 +197,7 @@ def test_best_effort_isolates_missing_account_and_all_or_none_blocks() -> None:
     assert strict["batch_ready_for_future_execution"] is False
 
 
-def test_stale_quote_blocks_phase24_before_live_account_risk_preparation() -> None:
+def test_stale_quote_blocks_phase24_before_account_risk_preparation() -> None:
     payload = deepcopy(_payload())
     payload["quotes"]["NQ 12-26"]["timestamp_ms"] = NOW_MS - 100_000
     adapter = NinjaTraderUniversalReadOnlyAdapter(MemoryBridge(payload))
