@@ -18,6 +18,7 @@ from tradingagents.agents.utils.agent_utils import (
 )
 from tradingagents.agents.utils.londres_stop import (
     LondresTraderProposal,
+    TraderRiskLevel,
     TraderStopSource,
     render_londres_trader_proposal,
     validate_londres_trader_stop,
@@ -75,7 +76,8 @@ def create_trader(llm):
                 + "\n".join(candidate_lines)
                 + "\n"
                 + f"Londres direction: {stop_options.get('direction')}\n"
-                + f"Primary objective: {target.get('price')} ({target.get('source')})\n\n"
+                + f"Primary objective: {target.get('price')} ({target.get('source')})\n"
+                + "Approved account-risk tiers: 3%, 5%, 10% (10% is the hard ceiling).\n\n"
             )
             stop_system_instruction = (
                 "A validated Londres trade context is present. Choose the structural stop source "
@@ -84,11 +86,13 @@ def create_trader(llm):
                 "that one. Do not invent a different structural stop. Explain the choice using "
                 "MMXM/order-flow context and target geometry. The supplied price is a structural "
                 "anchor only; do not invent a tick buffer or executable stop-loss price yet. "
-                "Set stop_loss to null/omit it. Do not choose a lot size, contract count, portfolio "
-                "percentage, or any other position size: Londres volume is calculated later by the "
-                "deterministic risk engine from the exact entry-to-stop pips/ticks and account-risk "
-                "policy. Set position_sizing to null/omit it. If the Londres direction conflicts "
-                "with your transaction direction, choose Hold. "
+                "Set stop_loss to null/omit it. For an active trade, independently choose exactly "
+                "one account-risk tier: 3%, 5%, or 10%. Ten percent is an absolute hard ceiling. "
+                "Explain the risk-tier choice, but do not choose a lot size, contract count, or "
+                "position size: Londres volume is calculated by the deterministic risk engine from "
+                "the exact entry-to-stop pips/ticks, broker tick value, and selected risk tier. "
+                "Set position_sizing to null/omit it. If the Londres direction conflicts with your "
+                "transaction direction, choose Hold. "
             )
 
         messages = [
@@ -126,17 +130,21 @@ def create_trader(llm):
                 proposal = LondresTraderProposal(
                     action=TraderAction.HOLD,
                     reasoning=(
-                        "The deterministic Londres stop gate requires structured stop-source "
-                        "selection, but this provider cannot return the required schema safely."
+                        "The deterministic Londres stop/risk gate requires structured selection, "
+                        "but this provider cannot return the required schema safely."
                     ),
                     selected_stop_source=TraderStopSource.NONE,
+                    selected_risk_level=TraderRiskLevel.NONE,
                 )
                 stop_selection_state = {
                     "valid": False,
                     "selected_source": TraderStopSource.NONE.value,
                     "selected_anchor_price": None,
+                    "selected_risk_level": TraderRiskLevel.NONE.value,
+                    "selected_risk_fraction": None,
+                    "hard_risk_ceiling_fraction": 0.10,
                     "placement": None,
-                    "reason": "STRUCTURED_STOP_SELECTION_UNAVAILABLE",
+                    "reason": "STRUCTURED_STOP_RISK_SELECTION_UNAVAILABLE",
                     "order_authorized": False,
                 }
             else:
@@ -150,20 +158,24 @@ def create_trader(llm):
                     )
                 except Exception as exc:
                     logger.warning(
-                        "Londres Trader stop selection failed (%s); failing closed to Hold",
+                        "Londres Trader stop/risk selection failed (%s); failing closed to Hold",
                         exc,
                     )
                     proposal = LondresTraderProposal(
                         action=TraderAction.HOLD,
-                        reasoning="Londres structural stop selection could not be validated safely.",
+                        reasoning="Londres structural stop/risk selection could not be validated safely.",
                         selected_stop_source=TraderStopSource.NONE,
+                        selected_risk_level=TraderRiskLevel.NONE,
                     )
                     stop_selection_state = {
                         "valid": False,
                         "selected_source": TraderStopSource.NONE.value,
                         "selected_anchor_price": None,
+                        "selected_risk_level": TraderRiskLevel.NONE.value,
+                        "selected_risk_fraction": None,
+                        "hard_risk_ceiling_fraction": 0.10,
                         "placement": None,
-                        "reason": "STRUCTURAL_STOP_SELECTION_VALIDATION_FAILED",
+                        "reason": "STRUCTURAL_STOP_RISK_SELECTION_VALIDATION_FAILED",
                         "order_authorized": False,
                     }
             trader_plan = render_londres_trader_proposal(proposal)
