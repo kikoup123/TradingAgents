@@ -4,10 +4,16 @@ import Foundation
 final class AppModel: ObservableObject {
     @Published var signals: [LondresSignal]
     @Published var localization: LocalizationPreferences
+    @Published private(set) var latestStrategyResult: LondresStrategyResult?
+    @Published private(set) var latestStrategyError: String?
+    @Published private(set) var strategyBlockers: [String] = []
 
     let signalEngine = LondresSignalEngine()
+    let strategyPipeline = LondresStrategyPipeline()
     let performanceAnalyzer = LondresPerformanceAnalyzer()
     let aiService: any LondresAIService
+
+    private var emittedStrategyKeys = Set<String>()
 
     init(
         signals: [LondresSignal] = [],
@@ -21,6 +27,63 @@ final class AppModel: ObservableObject {
 
     func evaluate(_ input: LondresSignalInput) {
         signals.insert(signalEngine.evaluate(input), at: 0)
+    }
+
+    @discardableResult
+    func evaluateStrategy(
+        _ input: LondresStrategyInput,
+        paperTradingStore: PaperTradingStore
+    ) -> LondresStrategyResult? {
+        do {
+            let result = try strategyPipeline.analyze(input)
+            latestStrategyResult = result
+            latestStrategyError = nil
+            strategyBlockers = result.blockerCodes
+
+            guard let signal = result.signal, signal.status == .valid else {
+                return result
+            }
+            let key = strategyKey(signal: signal, result: result)
+            guard emittedStrategyKeys.insert(key).inserted else {
+                return result
+            }
+
+            signals.insert(signal, at: 0)
+            paperTradingStore.register(
+                signal: signal,
+                signaledAt: result.entryExecution?.entry?.time
+            )
+            return result
+        } catch {
+            latestStrategyResult = nil
+            latestStrategyError = String(describing: error)
+            strategyBlockers = ["STRATEGY_PIPELINE_ERROR"]
+            return nil
+        }
+    }
+
+    func processFiveMinuteMarketCandles(
+        _ candles: [MarketCandle],
+        paperTradingStore: PaperTradingStore
+    ) {
+        for candle in candles.sorted(by: { $0.openTime < $1.openTime })
+        where candle.timeframe == .fiveMinute {
+            paperTradingStore.process(candle: candle)
+        }
+    }
+
+    private func strategyKey(signal: LondresSignal, result: LondresStrategyResult) -> String {
+        let entryTime = result.entryExecution?.entry?.time.timeIntervalSince1970
+            ?? signal.createdAt.timeIntervalSince1970
+        let geometry = signal.geometry
+        return [
+            signal.context.symbol,
+            signal.context.direction.rawValue,
+            String(entryTime),
+            String(geometry?.entry ?? 0),
+            String(geometry?.stop ?? 0),
+            String(geometry?.target ?? 0)
+        ].joined(separator: "|")
     }
 
     static func demoSignal() -> LondresSignal {
