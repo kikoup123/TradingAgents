@@ -18,7 +18,6 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
-
 ALLOWED_RISK_FRACTIONS = (0.03, 0.05, 0.10)
 MAX_ACCOUNT_RISK_FRACTION = 0.10
 
@@ -75,7 +74,10 @@ class AccountRiskPolicy:
     def __post_init__(self) -> None:
         if self.account_equity <= 0:
             raise ValueError("account_equity must be > 0")
-        if not any(math.isclose(self.risk_fraction, allowed, abs_tol=1e-12) for allowed in ALLOWED_RISK_FRACTIONS):
+        if not any(
+            math.isclose(self.risk_fraction, allowed, abs_tol=1e-12)
+            for allowed in ALLOWED_RISK_FRACTIONS
+        ):
             raise ValueError("risk_fraction must be one of 0.03, 0.05, or 0.10")
         if self.risk_fraction > MAX_ACCOUNT_RISK_FRACTION + 1e-12:
             raise ValueError("risk_fraction cannot exceed the 10% hard account-risk ceiling")
