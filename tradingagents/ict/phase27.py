@@ -17,7 +17,15 @@ from dataclasses import asdict, dataclass, replace
 from enum import Enum
 from typing import Any
 
-from tradingagents.brokers.contracts import OrchestrationPolicy, TradeIntent, canonicalize_symbol
+from tradingagents.brokers.contracts import (
+    OrchestrationPolicy,
+    TradeIntent,
+    canonicalize_symbol,
+)
+from tradingagents.brokers.ninjatrader_futures import (
+    NINJATRADER_EQUITY_INDEX_FUTURES,
+    parse_ninjatrader_contract_symbol,
+)
 
 from .multi_account import MultiAccountBatchStatus
 
@@ -94,8 +102,12 @@ class Phase27AuthorizationBatch:
             "execution_handoff_ready": self.execution_handoff_ready,
             "order_authorized": self.order_authorized,
             "strategy_gate": dict(self.strategy_gate),
-            "authorization_authority": "LONDRES_PHASE27_DETERMINISTIC_ACCOUNT_HANDOFF_GATE",
-            "position_source": "PHASE26_ACCOUNT_SPECIFIC_CURRENT_EQUITY_RISK_PLAN",
+            "authorization_authority": (
+                "LONDRES_PHASE27_DETERMINISTIC_ACCOUNT_HANDOFF_GATE"
+            ),
+            "position_source": (
+                "PHASE26_ACCOUNT_SPECIFIC_CURRENT_EQUITY_RISK_PLAN"
+            ),
             "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
             "account_environment": "HIDDEN_INTERNAL",
             "execution_enabled": False,
@@ -127,29 +139,35 @@ class LondresPhase27ExecutionAuthorizationEngine:
         strategy_context: dict[str, Any],
         phase26_plan: dict[str, Any],
     ) -> dict[str, Any]:
-        policy, phase26_reasons = self._phase26_contract(intent=intent, plan=phase26_plan)
+        policy, phase26_reasons = self._phase26_contract(
+            intent=intent,
+            plan=phase26_plan,
+        )
         strategy_ready, strategy_gate, strategy_reasons = self._strategy_gate(
             intent=intent,
             context=strategy_context,
         )
         global_reasons = (*phase26_reasons, *strategy_reasons)
-        global_ready = policy is not None and not phase26_reasons and strategy_ready
+        global_ready = (
+            policy is not None
+            and not phase26_reasons
+            and strategy_ready
+        )
         effective_policy = policy or OrchestrationPolicy.BEST_EFFORT
 
-        plans: list[Phase27AccountAuthorization] = []
-        for account in phase26_plan.get("accounts") or []:
-            plans.append(
-                self._authorize_account(
-                    intent=intent,
-                    account=account,
-                    global_ready=global_ready,
-                    global_reasons=global_reasons,
-                )
+        plans = tuple(
+            self._authorize_account(
+                intent=intent,
+                account=account,
+                global_ready=global_ready,
+                global_reasons=global_reasons,
             )
+            for account in phase26_plan.get("accounts") or []
+        )
 
         batch = self._batch(
             intent=intent,
-            plans=tuple(plans),
+            plans=plans,
             policy=effective_policy,
             strategy_gate=strategy_gate,
             global_ready=global_ready,
@@ -165,7 +183,9 @@ class LondresPhase27ExecutionAuthorizationEngine:
 
     @staticmethod
     def _phase26_contract(
-        *, intent: TradeIntent, plan: dict[str, Any]
+        *,
+        intent: TradeIntent,
+        plan: dict[str, Any],
     ) -> tuple[OrchestrationPolicy | None, tuple[str, ...]]:
         reasons: list[str] = []
         try:
@@ -176,9 +196,21 @@ class LondresPhase27ExecutionAuthorizationEngine:
 
         if plan.get("trade_id") != intent.trade_id:
             reasons.append("PHASE26_TRADE_ID_DOES_NOT_MATCH_INTENT")
-        phase26_symbol = canonicalize_symbol(str(plan.get("canonical_symbol") or ""))
+        phase26_symbol = canonicalize_symbol(
+            str(plan.get("canonical_symbol") or "")
+        )
         if phase26_symbol != intent.canonical:
             reasons.append("PHASE26_CANONICAL_SYMBOL_DOES_NOT_MATCH_INTENT")
+
+        if plan.get("batch_ready_for_future_execution") is not True:
+            reasons.append("PHASE26_BATCH_NOT_READY_FOR_FUTURE_EXECUTION")
+
+        accounts = plan.get("accounts") or []
+        aliases = [str(account.get("account_alias") or "") for account in accounts]
+        if any(not alias for alias in aliases):
+            reasons.append("PHASE26_ACCOUNT_ALIAS_REQUIRED")
+        if len(set(aliases)) != len(aliases):
+            reasons.append("PHASE26_ACCOUNT_ALIASES_MUST_BE_UNIQUE")
         return policy, tuple(reasons)
 
     def _strategy_gate(
@@ -197,10 +229,13 @@ class LondresPhase27ExecutionAuthorizationEngine:
         csd_confirmed = execution_gate.get("csd_confirmed_after_smt") is True
         iof_confirmed = execution_gate.get("post_csd_iofc_confirmed") is True
         smt_validated = execution_gate.get("smt_validated") is True
-        gate_direction = str(execution_gate.get("direction") or "UNCONFIRMED")
+        gate_direction = str(
+            execution_gate.get("direction") or "UNCONFIRMED"
+        )
         iof_aligned = iof_confirmed and gate_direction == intent.direction
         pre_broker_authorized = bool(
-            pre_broker.get("status") == "AUTHORIZED" and pre_broker.get("order_authorized") is True
+            pre_broker.get("status") == "AUTHORIZED"
+            and pre_broker.get("order_authorized") is True
         )
 
         reasons: list[str] = []
@@ -224,11 +259,25 @@ class LondresPhase27ExecutionAuthorizationEngine:
         if calculation.get("status") != "READY":
             reasons.append("TRADE_CALCULATION_READY_STATE_REQUIRED")
 
-        calculation_symbol = canonicalize_symbol(str(calculation.get("symbol") or ""))
-        if calculation_symbol != intent.canonical:
-            reasons.append("STRATEGY_SYMBOL_DOES_NOT_MATCH_TRADE_INTENT")
+        if str(entry.get("direction") or "") != intent.direction:
+            reasons.append("ENTRY_DIRECTION_DOES_NOT_MATCH_TRADE_INTENT")
+        if str(stop.get("direction") or "") != intent.direction:
+            reasons.append("STOP_DIRECTION_DOES_NOT_MATCH_TRADE_INTENT")
         if str(calculation.get("direction") or "") != intent.direction:
             reasons.append("TRADE_CALCULATION_DIRECTION_DOES_NOT_MATCH_INTENT")
+        if str(pre_broker.get("direction") or "") != intent.direction:
+            reasons.append("PRE_BROKER_DIRECTION_DOES_NOT_MATCH_INTENT")
+
+        calculation_symbol = canonicalize_symbol(
+            str(calculation.get("symbol") or "")
+        )
+        if calculation_symbol != intent.canonical:
+            reasons.append("STRATEGY_SYMBOL_DOES_NOT_MATCH_TRADE_INTENT")
+        pre_broker_symbol = canonicalize_symbol(
+            str(pre_broker.get("symbol") or "")
+        )
+        if pre_broker_symbol != intent.canonical:
+            reasons.append("PRE_BROKER_SYMBOL_DOES_NOT_MATCH_TRADE_INTENT")
         if str(calculation.get("selected_exit_mode") or "") != intent.selected_exit_mode:
             reasons.append("EXIT_MODE_DOES_NOT_MATCH_TRADE_INTENT")
 
@@ -301,7 +350,11 @@ class LondresPhase27ExecutionAuthorizationEngine:
                 account=account,
                 reasons=("ACCOUNT_DISABLED_BY_USER_CONFIGURATION",),
             )
-        if not account.get("preparation_ready"):
+
+        if (
+            account.get("status") != "READY"
+            or account.get("preparation_ready") is not True
+        ):
             return self._blocked(
                 intent=intent,
                 alias=alias,
@@ -309,6 +362,19 @@ class LondresPhase27ExecutionAuthorizationEngine:
                 account=account,
                 reasons=("PHASE26_ACCOUNT_PREPARATION_REQUIRED",),
             )
+
+        account_symbol = canonicalize_symbol(
+            str(account.get("canonical_symbol") or "")
+        )
+        if account_symbol != intent.canonical:
+            return self._blocked(
+                intent=intent,
+                alias=alias,
+                status=Phase27AccountStatus.BLOCKED_INTENT_MISMATCH,
+                account=account,
+                reasons=("PHASE26_ACCOUNT_SYMBOL_DOES_NOT_MATCH_INTENT",),
+            )
+
         if not global_ready:
             status = (
                 Phase27AccountStatus.BLOCKED_INTENT_MISMATCH
@@ -323,32 +389,130 @@ class LondresPhase27ExecutionAuthorizationEngine:
                 reasons=global_reasons or ("GLOBAL_EXECUTION_GATE_NOT_READY",),
             )
 
-        selected_root = str(account.get("selected_root") or "").strip().upper()
-        phase24 = account.get("phase24_account_plan") or {}
-        active_contract = str(phase24.get("active_contract") or "").strip().upper()
+        selected_root = str(
+            account.get("selected_root") or ""
+        ).strip().upper()
         quantity = self._contract_quantity(account.get("prepared_contracts"))
-        if not alias or not selected_root or not active_contract or quantity is None:
+        max_contracts = self._contract_quantity(account.get("max_contracts"))
+        phase24 = account.get("phase24_account_plan") or {}
+        active_contract = str(
+            phase24.get("active_contract") or ""
+        ).strip().upper()
+
+        if (
+            not alias
+            or not selected_root
+            or not active_contract
+            or quantity is None
+            or max_contracts is None
+        ):
             return self._blocked(
                 intent=intent,
                 alias=alias,
                 status=Phase27AccountStatus.BLOCKED_EXECUTION_ENVELOPE,
                 account=account,
-                reasons=("EXACT_ACCOUNT_CONTRACT_AND_POSITIVE_INTEGER_QUANTITY_REQUIRED",),
+                reasons=(
+                    "EXACT_ACCOUNT_CONTRACT_CAP_AND_POSITIVE_INTEGER_QUANTITY_REQUIRED",
+                ),
             )
-        if not active_contract.startswith(f"{selected_root} "):
+
+        spec = NINJATRADER_EQUITY_INDEX_FUTURES.get(selected_root)
+        if (
+            spec is None
+            or canonicalize_symbol(spec.canonical_symbol) != intent.canonical
+        ):
             return self._blocked(
                 intent=intent,
                 alias=alias,
                 status=Phase27AccountStatus.BLOCKED_EXECUTION_ENVELOPE,
                 account=account,
-                reasons=("ACTIVE_CONTRACT_ROOT_DOES_NOT_MATCH_PHASE26_SELECTED_ROOT",),
+                reasons=("SELECTED_ROOT_DOES_NOT_MATCH_TRADE_INTENT",),
+            )
+
+        if quantity > max_contracts:
+            return self._blocked(
+                intent=intent,
+                alias=alias,
+                status=Phase27AccountStatus.BLOCKED_EXECUTION_ENVELOPE,
+                account=account,
+                reasons=("PREPARED_QUANTITY_EXCEEDS_PHASE26_MAX_CONTRACTS",),
+            )
+
+        phase24_symbol = canonicalize_symbol(
+            str(phase24.get("canonical_symbol") or "")
+        )
+        phase24_root = str(
+            phase24.get("selected_root") or ""
+        ).strip().upper()
+        if phase24_symbol != intent.canonical:
+            return self._blocked(
+                intent=intent,
+                alias=alias,
+                status=Phase27AccountStatus.BLOCKED_INTENT_MISMATCH,
+                account=account,
+                reasons=("PHASE24_ACCOUNT_SYMBOL_DOES_NOT_MATCH_INTENT",),
+            )
+        if (
+            phase24.get("status") != "READY"
+            or phase24.get("preparation_ready") is not True
+        ):
+            return self._blocked(
+                intent=intent,
+                alias=alias,
+                status=Phase27AccountStatus.BLOCKED_PHASE26,
+                account=account,
+                reasons=("PHASE24_ACCOUNT_PREPARATION_REQUIRED",),
+            )
+        if phase24_root != selected_root:
+            return self._blocked(
+                intent=intent,
+                alias=alias,
+                status=Phase27AccountStatus.BLOCKED_EXECUTION_ENVELOPE,
+                account=account,
+                reasons=("PHASE24_ROOT_DOES_NOT_MATCH_PHASE26_SELECTED_ROOT",),
+            )
+
+        try:
+            parsed_contract = parse_ninjatrader_contract_symbol(active_contract)
+        except ValueError:
+            return self._blocked(
+                intent=intent,
+                alias=alias,
+                status=Phase27AccountStatus.BLOCKED_EXECUTION_ENVELOPE,
+                account=account,
+                reasons=("ACTIVE_CONTRACT_FORMAT_OR_QUARTER_INVALID",),
+            )
+        if parsed_contract.root != selected_root:
+            return self._blocked(
+                intent=intent,
+                alias=alias,
+                status=Phase27AccountStatus.BLOCKED_EXECUTION_ENVELOPE,
+                account=account,
+                reasons=(
+                    "ACTIVE_CONTRACT_ROOT_DOES_NOT_MATCH_PHASE26_SELECTED_ROOT",
+                ),
+            )
+
+        phase23 = phase24.get("phase23_account_plan") or {}
+        phase23_quantity = self._contract_quantity(
+            phase23.get("prepared_volume")
+        )
+        if phase23_quantity != quantity:
+            return self._blocked(
+                intent=intent,
+                alias=alias,
+                status=Phase27AccountStatus.BLOCKED_EXECUTION_ENVELOPE,
+                account=account,
+                reasons=("PHASE24_PHASE23_QUANTITY_DOES_NOT_MATCH_PHASE26",),
             )
 
         fingerprint = self._fingerprint(
             intent=intent,
             account_alias=alias,
-            active_contract=active_contract,
+            selected_root=selected_root,
+            active_contract=parsed_contract.symbol,
             quantity=quantity,
+            max_contracts=max_contracts,
         )
         return Phase27AccountAuthorization(
             account_alias=alias,
@@ -357,7 +521,7 @@ class LondresPhase27ExecutionAuthorizationEngine:
             canonical_symbol=intent.canonical,
             direction=intent.direction,
             selected_root=selected_root,
-            active_contract=active_contract,
+            active_contract=parsed_contract.symbol,
             contract_quantity=quantity,
             entry_price=intent.entry_price,
             stop_price=intent.stop_price,
@@ -371,6 +535,8 @@ class LondresPhase27ExecutionAuthorizationEngine:
                 "SMT_CSD_IOF_STRATEGY_GATE_CONFIRMED",
                 "PHASE17_HARD_VALIDATION_CONFIRMED",
                 "PHASE26_LIVE_ACCOUNT_PLAN_CONFIRMED",
+                "PHASE24_CONTRACT_BINDING_REVERIFIED",
+                "PHASE23_AND_PHASE26_QUANTITY_MATCH_CONFIRMED",
                 "CONTRACT_QUANTITY_TAKEN_ONLY_FROM_PHASE26_ACCOUNT_PLAN",
                 "AUTHORIZED_FOR_FUTURE_EXECUTION_ADAPTER_HANDOFF",
             ),
@@ -378,6 +544,8 @@ class LondresPhase27ExecutionAuthorizationEngine:
 
     @staticmethod
     def _contract_quantity(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
         try:
             quantity = float(value)
         except (TypeError, ValueError):
@@ -385,7 +553,12 @@ class LondresPhase27ExecutionAuthorizationEngine:
         if not math.isfinite(quantity) or quantity <= 0:
             return None
         rounded = round(quantity)
-        if not math.isclose(quantity, rounded, rel_tol=0.0, abs_tol=1e-12):
+        if not math.isclose(
+            quantity,
+            rounded,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
             return None
         return int(rounded)
 
@@ -394,8 +567,10 @@ class LondresPhase27ExecutionAuthorizationEngine:
         *,
         intent: TradeIntent,
         account_alias: str,
+        selected_root: str,
         active_contract: str,
         quantity: int,
+        max_contracts: int,
     ) -> str:
         payload = {
             "account_alias": account_alias,
@@ -404,7 +579,9 @@ class LondresPhase27ExecutionAuthorizationEngine:
             "contract_quantity": quantity,
             "direction": intent.direction,
             "entry_price": intent.entry_price,
+            "max_contracts": max_contracts,
             "selected_exit_mode": intent.selected_exit_mode,
+            "selected_root": selected_root,
             "stop_price": intent.stop_price,
             "target_price": intent.target_price,
             "trade_id": intent.trade_id,
@@ -459,7 +636,10 @@ class LondresPhase27ExecutionAuthorizationEngine:
         global_ready: bool,
         global_reasons: tuple[str, ...],
     ) -> Phase27AuthorizationBatch:
-        skipped = sum(item.status is Phase27AccountStatus.SKIPPED_DISABLED for item in plans)
+        skipped = sum(
+            item.status is Phase27AccountStatus.SKIPPED_DISABLED
+            for item in plans
+        )
         enabled = len(plans) - skipped
         candidates = sum(item.execution_handoff_ready for item in plans)
         blocked = enabled - candidates
@@ -475,7 +655,9 @@ class LondresPhase27ExecutionAuthorizationEngine:
         elif policy is OrchestrationPolicy.ALL_OR_NONE and blocked:
             status = MultiAccountBatchStatus.BLOCKED
             ready = False
-            reasons = ("ALL_OR_NONE_REQUIRES_EVERY_ENABLED_ACCOUNT_TO_PASS_PHASE27",)
+            reasons = (
+                "ALL_OR_NONE_REQUIRES_EVERY_ENABLED_ACCOUNT_TO_PASS_PHASE27",
+            )
             plans = tuple(
                 self._revoke_for_batch_policy(item)
                 if item.execution_handoff_ready
@@ -487,15 +669,21 @@ class LondresPhase27ExecutionAuthorizationEngine:
         elif candidates == enabled:
             status = MultiAccountBatchStatus.READY
             ready = True
-            reasons = ("ALL_ENABLED_LIVE_ACCOUNTS_AUTHORIZED_FOR_EXECUTION_HANDOFF",)
+            reasons = (
+                "ALL_ENABLED_LIVE_ACCOUNTS_AUTHORIZED_FOR_EXECUTION_HANDOFF",
+            )
         elif candidates > 0:
             status = MultiAccountBatchStatus.PARTIAL_READY
             ready = True
-            reasons = ("BEST_EFFORT_AUTHORIZES_ONLY_ACCOUNTS_THAT_PASSED_PHASE27",)
+            reasons = (
+                "BEST_EFFORT_AUTHORIZES_ONLY_ACCOUNTS_THAT_PASSED_PHASE27",
+            )
         else:
             status = MultiAccountBatchStatus.BLOCKED
             ready = False
-            reasons = ("NO_LIVE_ACCOUNT_PASSED_PHASE27_EXECUTION_AUTHORIZATION",)
+            reasons = (
+                "NO_LIVE_ACCOUNT_PASSED_PHASE27_EXECUTION_AUTHORIZATION",
+            )
 
         return Phase27AuthorizationBatch(
             trade_id=intent.trade_id,
