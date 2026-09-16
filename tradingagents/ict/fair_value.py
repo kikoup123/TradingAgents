@@ -76,7 +76,8 @@ class FairValueEngine:
                 if ref.confirmed_position >= source:
                     continue
                 earlier = data.iloc[ref.confirmed_position : source]["close"]
-                crossed = (
+                traded_reference = float(impulse.low) <= ref.price <= float(impulse.high)
+                crossed = traded_reference and (
                     impulse.close > ref.price and earlier.max() <= ref.price
                     if direction == Direction.BULLISH
                     else impulse.close < ref.price and earlier.min() >= ref.price
@@ -104,12 +105,6 @@ class FairValueEngine:
             )
             for j in range(position + 1, len(data)):
                 row = data.iloc[j]
-                invalid = row.close < low if direction == Direction.BULLISH else row.close > high
-                if invalid:
-                    gap.status = "INVALIDATED"
-                    gap.invalidated_position = j
-                    gap.invalidated_time = data.index[j].isoformat()
-                    break
                 touched = row.low <= high and row.high >= low
                 if touched and gap.first_touch_position is None:
                     gap.first_touch_position = j
@@ -134,6 +129,14 @@ class FairValueEngine:
                     and gap.pairing_rejection_position is None
                 ):
                     gap.pairing_rejection_position = j
+                # Record observable touch/fill/return evidence even when this same
+                # candle ultimately invalidates the gap by body close.
+                invalid = row.close < low if direction == Direction.BULLISH else row.close > high
+                if invalid:
+                    gap.status = "INVALIDATED"
+                    gap.invalidated_position = j
+                    gap.invalidated_time = data.index[j].isoformat()
+                    break
             gaps.append(gap)
         usable = [g for g in gaps if g.status in {"OPEN", "PARTIALLY_REBALANCED"}]
         return {
