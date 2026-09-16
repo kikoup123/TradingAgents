@@ -1,7 +1,6 @@
 import Foundation
 import StoreKit
 
-@MainActor
 enum SubscriptionTier: String, CaseIterable, Identifiable {
     case journal
     case analysis
