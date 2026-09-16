@@ -16,6 +16,13 @@ struct LondresTradingAIApp: App {
                 .environmentObject(subscriptionStore)
                 .task {
                     await subscriptionStore.load()
+                    await MainActor.run {
+                        appModel.startMarketData(
+                            paperTradingStore: paperTradingStore,
+                            plan: .nq,
+                            refreshInterval: 30
+                        )
+                    }
                 }
         }
     }
