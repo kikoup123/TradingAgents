@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from tradingagents.brokers import BrokerAccountSnapshot, BrokerCapabilities, BrokerInstrumentSpec, BrokerQuote, BrokerSymbolMap, BrokerType, TradeIntent
+from tradingagents.brokers import (
+    BrokerAccountSnapshot,
+    BrokerCapabilities,
+    BrokerInstrumentSpec,
+    BrokerQuote,
+    BrokerSymbolMap,
+    BrokerType,
+    TradeIntent,
+)
 from tradingagents.ict import LondresPhase23LiveAccountRiskEngine, ManagedBrokerAccount
 
 
