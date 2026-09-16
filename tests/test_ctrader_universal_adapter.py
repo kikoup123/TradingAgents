@@ -82,7 +82,7 @@ def test_ctrader_adapter_exposes_universal_sanitized_contract() -> None:
     assert instrument.tick_size == 0.01
     assert instrument.pip_size == 0.1
     assert instrument.min_volume == 1.0
-    assert instrument.step_volume == 1.0
+    assert instrument.volume_step == 1.0
     assert instrument.max_volume == 10_000.0
     assert instrument.tick_value_account_currency is None
     assert instrument.risk_metadata_ready is False
