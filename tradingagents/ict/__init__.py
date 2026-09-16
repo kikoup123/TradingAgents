@@ -119,6 +119,12 @@ from .phase28 import (
     Phase28AccountStatus,
     Phase28MultiAccountPlan,
 )
+from .phase29 import (
+    LondresPhase29PropComplianceEngine,
+    Phase29AccountPlan,
+    Phase29AccountStatus,
+    Phase29MultiAccountPlan,
+)
 from .prop_accounts import (
     ClassifiedManagedAccount,
     MixedAccountExecutionManager,
@@ -230,6 +236,9 @@ __all__ = [
     "Phase28AccountPlan",
     "Phase28AccountStatus",
     "Phase28MultiAccountPlan",
+    "Phase29AccountPlan",
+    "Phase29AccountStatus",
+    "Phase29MultiAccountPlan",
     "PropFirmResearchHint",
     "PropFirmRuleRefreshPolicy",
     "PriceDeliveryEngine",
@@ -278,6 +287,7 @@ __all__ = [
     "LondresPhase26NinjaTraderAccountPolicyEngine",
     "LondresPhase27PropFirmRuleResearchEngine",
     "LondresPhase28DynamicPropRiskEngine",
+    "LondresPhase29PropComplianceEngine",
     "CSDPivotReference",
     "CSDResult",
     "CSDEngine",
