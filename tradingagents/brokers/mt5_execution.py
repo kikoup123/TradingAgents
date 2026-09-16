@@ -11,8 +11,10 @@ import hashlib
 import json
 import os
 import time
+from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .contracts import BrokerType
 from .execution import (
@@ -85,15 +87,13 @@ class MT5FileExecutionTransport:
         temporary.write_text(text, encoding="utf-8")
         try:
             os.link(temporary, path)
-        except FileExistsError:
+        except FileExistsError as exc:
             existing = path.read_text(encoding="utf-8")
             if existing != text:
-                raise MT5ExecutionIPCError("Concurrent MT5 request payload conflict")
+                raise MT5ExecutionIPCError("Concurrent MT5 request payload conflict") from exc
         finally:
-            try:
+            with suppress(FileNotFoundError):
                 temporary.unlink()
-            except FileNotFoundError:
-                pass
 
     @staticmethod
     def _read_response(path: Path, *, command_id: str, operation: str) -> dict[str, Any]:
