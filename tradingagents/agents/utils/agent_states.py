@@ -123,15 +123,19 @@ class AgentState(MessagesState):
     ]
     trader_stop_selection_state: Annotated[
         dict,
-        "Hard-validated Trader choice of structural stop and approved 3%/5%/10% account-risk tier",
+        "Hard-validated Trader choices for structural stop, 3%/5%/10% risk tier, and Phase 12 exit mode",
     ]
     risk_sizing_state: Annotated[
         dict,
         "Deterministic pips/ticks stop-range sizing using the selected 3%/5%/10% risk tier with a 10% hard ceiling",
     ]
+    target_management_state: Annotated[
+        dict,
+        "CSD -2/-2.5 target geometry, automatic 60% partial at -2.5 for hold mode, and 40% HTF-liquidity runner",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> stop/risk-selection context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> stop/risk -> target-management context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
