@@ -1,5 +1,3 @@
-from copy import deepcopy
-
 from tradingagents.brokers import OrchestrationPolicy, TradeIntent
 from tradingagents.ict.phase30 import (
     LondresPhase30UniversalExecutionAuthorizationEngine,
@@ -225,12 +223,16 @@ def test_phase30_authorizes_ninja_fp_and_vantage_under_one_batch() -> None:
     assert result["order_authorized"] is True
     assert result["order_submission_enabled"] is False
     assert result["broker_order_placed"] is False
-    assert result["strategy_gate"]["required_sequence"] == "SMT_DETECTED+CSD_CONFIRMED+IOF_ALIGNED"
+    assert (
+        result["strategy_gate"]["required_sequence"]
+        == "SMT_DETECTED+CSD_CONFIRMED+IOF_ALIGNED"
+    )
 
     by_venue = {account["venue"]: account for account in result["accounts"]}
     assert by_venue["NINJATRADER"]["prepared_volume"] == 2.0
     assert by_venue["FP_MARKETS_CTRADER"]["prepared_volume"] == 60.0
     assert by_venue["VANTAGE_MT5"]["prepared_volume"] == 30.0
+    assert by_venue["NINJATRADER"]["selected_risk_fraction"] == 0.03
     assert by_venue["FP_MARKETS_CTRADER"]["selected_risk_fraction"] == 0.03
     assert by_venue["VANTAGE_MT5"]["selected_risk_fraction"] == 0.03
     fingerprints = [account["authorization_fingerprint"] for account in result["accounts"]]
@@ -288,8 +290,20 @@ def test_phase30_blocks_invalid_cfd_risk_tier_or_risk_overrun() -> None:
     account = result["accounts"][0]
     assert result["status"] == "BLOCKED"
     assert "PHASE23_RISK_FRACTION_MUST_BE_EXACTLY_3_5_OR_10_PERCENT" in account["reason_codes"]
-    assert "PROJECTED_RISK_EXCEEDS_SELECTED_ACCOUNT_RISK_FRACTION" in account["reason_codes"]
     assert "PROJECTED_RISK_EXCEEDS_LONDRES_HARD_ACCOUNT_LIMIT" in account["reason_codes"]
+
+
+def test_phase30_blocks_tampered_ninjatrader_risk_tier() -> None:
+    ninja = _phase27_account()
+    ninja["phase26_account_plan"]["policy_state"]["risk_fraction"] = 0.04
+    result = LondresPhase30UniversalExecutionAuthorizationEngine().authorize(
+        intent=_intent(),
+        strategy_context=_strategy_context(),
+        phase27_plan=_phase27_plan(ninja),
+    )
+    account = result["accounts"][0]
+    assert result["status"] == "BLOCKED"
+    assert "PHASE26_RISK_FRACTION_MUST_BE_EXACTLY_3_5_OR_10_PERCENT" in account["reason_codes"]
 
 
 def test_phase30_rejects_broker_identity_or_type_tamper() -> None:
@@ -374,7 +388,10 @@ def test_phase30_fingerprint_changes_when_exact_account_volume_changes() -> None
         strategy_context=_strategy_context(),
         phase29_plan=_phase29_plan(changed),
     )
-    assert first["accounts"][0]["authorization_fingerprint"] != second["accounts"][0]["authorization_fingerprint"]
+    assert (
+        first["accounts"][0]["authorization_fingerprint"]
+        != second["accounts"][0]["authorization_fingerprint"]
+    )
 
 
 def test_phase30_has_no_execution_surface() -> None:
