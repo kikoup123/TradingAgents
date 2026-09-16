@@ -33,7 +33,11 @@ class TraderRiskLevel(str, Enum):
 
 
 class LondresTraderProposal(TraderProposal):
-    """Trader proposal with constrained structural-stop, risk and exit choices.
+    """Trader proposal with constrained entry, stop, risk and exit choices.
+
+    When Phase 13 is present the exact entry price is deterministic: the first
+    return into the confirmed IOF range formed after CSD. The Trader cannot
+    replace that price with an invented entry.
 
     ``stop_anchor_price`` is not the executable broker stop. It is the exact
     deterministic structural boundary selected by the Trader. A later risk
@@ -101,8 +105,9 @@ def validate_londres_trader_stop(
     proposal: LondresTraderProposal,
     stop_options: dict,
     target_management: dict | None = None,
+    entry_execution: dict | None = None,
 ) -> tuple[LondresTraderProposal, dict]:
-    """Accept only deterministic stop, 3/5/10 risk, and Phase 12 exit choices."""
+    """Accept only deterministic entry/stop, 3/5/10 risk, and Phase 12 exits."""
     candidates = {
         candidate["source"]: candidate
         for candidate in stop_options.get("candidates", [])
@@ -124,6 +129,7 @@ def validate_londres_trader_stop(
                 "selected_risk_level": TraderRiskLevel.NONE,
                 "selected_exit_mode": TraderExitMode.NONE,
                 "stop_anchor_price": None,
+                "entry_price": None,
                 "stop_loss": None,
                 "position_sizing": None,
             }
@@ -136,6 +142,8 @@ def validate_londres_trader_stop(
             "selected_risk_fraction": None,
             "selected_exit_mode": TraderExitMode.NONE.value,
             "target_management": None,
+            "exact_entry_price": None,
+            "entry_source": None,
             "hard_risk_ceiling_fraction": 0.10,
             "placement": None,
             "reason": "TRADER_CHOSE_HOLD",
@@ -146,6 +154,15 @@ def validate_londres_trader_stop(
 
     if proposal.action != expected_action:
         return _force_hold(proposal, "TRADER_DIRECTION_CONFLICTS_WITH_LONDRES_GATE")
+
+    deterministic_entry = None
+    if entry_execution is not None:
+        if entry_execution.get("status") != "ENTRY_TRIGGERED":
+            return _force_hold(proposal, "WAIT_FOR_POST_CSD_IOF_RANGE_RETRACE_ENTRY")
+        exact_entry = entry_execution.get("exact_entry_price")
+        if exact_entry is None:
+            return _force_hold(proposal, "DETERMINISTIC_ENTRY_PRICE_UNAVAILABLE")
+        deterministic_entry = float(exact_entry)
 
     if not candidates:
         return _force_hold(proposal, "NO_VALID_STRUCTURAL_STOP_OPTION")
@@ -179,6 +196,7 @@ def validate_londres_trader_stop(
         update={
             "selected_stop_source": TraderStopSource(source),
             "stop_anchor_price": float(candidate["anchor_price"]),
+            "entry_price": deterministic_entry if deterministic_entry is not None else proposal.entry_price,
             # The Trader selects structural stop + approved risk/target policy,
             # never executable stop buffer, broker volume, or arbitrary TP price.
             "stop_loss": None,
@@ -193,6 +211,12 @@ def validate_londres_trader_stop(
         "selected_risk_fraction": validated.selected_risk_level.fraction,
         "selected_exit_mode": validated.selected_exit_mode.value,
         "target_management": target_selection,
+        "exact_entry_price": deterministic_entry,
+        "entry_source": (
+            "FIRST_RETURN_INTO_CONFIRMED_POST_CSD_IOF_RANGE"
+            if deterministic_entry is not None
+            else None
+        ),
         "hard_risk_ceiling_fraction": 0.10,
         "allowed_risk_levels": ["3%", "5%", "10%"],
         "placement": candidate.get("placement"),
@@ -237,6 +261,8 @@ def _force_hold(
         "selected_risk_fraction": None,
         "selected_exit_mode": TraderExitMode.NONE.value,
         "target_management": None,
+        "exact_entry_price": None,
+        "entry_source": None,
         "hard_risk_ceiling_fraction": 0.10,
         "placement": None,
         "reason": reason,
@@ -270,6 +296,6 @@ def render_londres_trader_proposal(proposal: LondresTraderProposal) -> str:
         parts.extend(["", f"**Target Selection Rationale**: {proposal.target_selection_reason}"])
     if proposal.stop_loss is not None:
         parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
-    # Londres position size and TP prices are never invented by the LLM.
+    # Londres entry, position size and TP prices come from deterministic layers.
     parts.extend(["", f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**"])
     return "\n".join(parts)
