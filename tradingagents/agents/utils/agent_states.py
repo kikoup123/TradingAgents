@@ -181,9 +181,13 @@ class AgentState(MessagesState):
         dict,
         "Phase 20 per-account Londres trade-intent replication with independent equity-based 3/5/10% sizing, symbol normalization, capability checks, exact 60/40 validation, fill-aware break-even metadata, and no broker submission",
     ]
+    broker_risk_normalization_state: Annotated[
+        dict,
+        "Phase 21 broker-native tick-value normalization in account deposit currency with provenance, conversion metadata, broker volume grid, and fail-closed InstrumentRiskSpec generation",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
