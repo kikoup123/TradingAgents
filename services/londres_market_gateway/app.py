@@ -42,7 +42,7 @@ Auth = Annotated[None, Depends(_authorize)]
 
 
 @app.get("/health")
-def health(_: Auth) -> dict:
+def health() -> dict:
     return feed.status()
 
 
