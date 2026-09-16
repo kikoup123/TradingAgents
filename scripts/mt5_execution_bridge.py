@@ -19,9 +19,10 @@ import math
 import os
 import sqlite3
 import time
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 
 ACKNOWLEDGED = "ACKNOWLEDGED"
