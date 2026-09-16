@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from services.londres_market_gateway.models import Bar, aggregate_bars, bucket_start
+from services.londres_market_gateway.rolling_databento_feed import RollingDatabentoMarketFeed
 
 UTC = timezone.utc
 
@@ -63,6 +64,26 @@ def test_five_minute_aggregation_returns_only_closed_buckets() -> None:
     assert first.volume == 50
 
 
+def test_five_minute_bucket_releases_only_after_close() -> None:
+    start = datetime(2026, 9, 16, 14, 0, tzinfo=UTC)
+    bars = [_bar(start + timedelta(minutes=minute), 100 + minute) for minute in range(10)]
+
+    before_close = aggregate_bars(
+        bars,
+        "M5",
+        as_of=datetime(2026, 9, 16, 14, 9, 59, tzinfo=UTC),
+    )
+    after_close = aggregate_bars(
+        bars,
+        "M5",
+        as_of=datetime(2026, 9, 16, 14, 10, tzinfo=UTC),
+    )
+
+    assert len(before_close) == 1
+    assert len(after_close) == 2
+    assert after_close[-1].open_time == datetime(2026, 9, 16, 14, 5, tzinfo=UTC)
+
+
 def test_h4_aggregation_preserves_open_high_low_close_order() -> None:
     start = datetime(2026, 9, 16, 10, 0, tzinfo=UTC)
     bars = [
@@ -85,3 +106,17 @@ def test_h4_aggregation_preserves_open_high_low_close_order() -> None:
     assert candle.low == 98
     assert candle.close == 111
     assert candle.volume == 40
+
+
+def test_live_session_rotation_has_safe_minimum() -> None:
+    feed = RollingDatabentoMarketFeed(live_session_minutes=1)
+
+    assert feed.live_session_minutes == 15
+    assert feed.status()["liveSessionMinutes"] == 15
+    assert feed.status()["lastLiveReconnectAt"] is None
+
+
+def test_live_session_rotation_accepts_operational_interval() -> None:
+    feed = RollingDatabentoMarketFeed(live_session_minutes=360)
+
+    assert feed.live_session_minutes == 360
