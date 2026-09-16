@@ -3,10 +3,16 @@ import Foundation
 struct MarketDataGatewayConfiguration: Hashable, Sendable {
     let baseURL: URL
     let quotePollingInterval: TimeInterval
+    let bearerToken: String?
 
-    init(baseURL: URL, quotePollingInterval: TimeInterval = 1.0) {
+    init(
+        baseURL: URL,
+        quotePollingInterval: TimeInterval = 1.0,
+        bearerToken: String? = nil
+    ) {
         self.baseURL = baseURL
         self.quotePollingInterval = max(0.25, quotePollingInterval)
+        self.bearerToken = bearerToken?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func fromRuntime() -> MarketDataGatewayConfiguration? {
@@ -19,7 +25,9 @@ struct MarketDataGatewayConfiguration: Hashable, Sendable {
               url.scheme?.lowercased() == "https" else {
             return nil
         }
-        return MarketDataGatewayConfiguration(baseURL: url)
+        let token = environment["LONDRES_MARKET_DATA_BEARER_TOKEN"]
+            ?? Bundle.main.object(forInfoDictionaryKey: "LONDRES_MARKET_DATA_BEARER_TOKEN") as? String
+        return MarketDataGatewayConfiguration(baseURL: url, bearerToken: token)
     }
 }
 
@@ -188,6 +196,9 @@ final class CanonicalHTTPMarketDataAdapter: MarketDataProvider, @unchecked Senda
         request.httpMethod = "GET"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = configuration.bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
