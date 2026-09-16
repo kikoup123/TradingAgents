@@ -34,23 +34,23 @@ class MemoryBridge:
         return self.public_status()
 
 
-def _payload() -> dict:
+def _payload(*, trade_mode: str = "REAL", server: str = "Vantage-Route-A") -> dict:
     return {
         "schema_version": 1,
         "bridge_status": "CONNECTED",
         "generated_at_ms": NOW_MS - 100,
         "terminal": {
             "company": "Vantage Global Prime",
-            "server": "Vantage-Live",
+            "server": server,
             "connected": True,
         },
         "account": {
-            "account_key": "hashed-private-account-key",
+            "account_key": f"hashed-private-account-key-{server}",
             "masked_account": "••••4321",
             "provider": "Vantage Global Prime",
-            "server": "Vantage-Live",
+            "server": server,
             "connected": True,
-            "trade_mode": "REAL",
+            "trade_mode": trade_mode,
             "currency": "USD",
             "balance": 10_000.0,
             "equity": 10_000.0,
@@ -84,8 +84,7 @@ def _payload() -> dict:
     }
 
 
-def test_mt5_adapter_exposes_sanitized_vantage_live_account() -> None:
-    adapter = MT5UniversalReadOnlyAdapter(MemoryBridge(_payload()))
+def _assert_sanitized(adapter: MT5UniversalReadOnlyAdapter) -> None:
     discovered = adapter.discover_accounts()[0]
     account = adapter.account_snapshot(discovered.account_alias)
     instrument = adapter.instrument_snapshot(
@@ -112,15 +111,53 @@ def test_mt5_adapter_exposes_sanitized_vantage_live_account() -> None:
     assert quote.ask == 25_000.0
     assert adapter.capabilities().execution_enabled is False
     assert adapter.public_status()["order_submission_enabled"] is False
+    assert adapter.public_status()["account_scope"] == "BROKERAGE_ACCOUNTS"
+    assert adapter.public_status()["account_environment"] == "HIDDEN_INTERNAL"
     assert not hasattr(adapter, "place_order")
     assert not hasattr(adapter, "submit_order")
 
+    public_payloads = (
+        discovered.to_dict(),
+        adapter.public_status(),
+        adapter.bridge_metadata(),
+    )
+    rendered = str(public_payloads).upper()
+    assert "TRADE_MODE" not in rendered
+    assert "DEMO" not in rendered
+    assert "REAL" not in rendered
+    assert "VANTAGE-ROUTE" not in rendered
 
-def test_mt5_adapter_rejects_non_live_account() -> None:
-    payload = deepcopy(_payload())
-    payload["account"]["trade_mode"] = "DEMO"
-    with pytest.raises(MT5BridgeError, match="live brokerage accounts only"):
-        MT5UniversalReadOnlyAdapter(MemoryBridge(payload))
+
+def test_mt5_adapter_exposes_sanitized_vantage_live_account() -> None:
+    _assert_sanitized(MT5UniversalReadOnlyAdapter(MemoryBridge(_payload(trade_mode="REAL"))))
+
+
+def test_mt5_adapter_accepts_demo_account_without_public_environment_leak() -> None:
+    _assert_sanitized(
+        MT5UniversalReadOnlyAdapter(
+            MemoryBridge(_payload(trade_mode="DEMO", server="Vantage-Route-B"))
+        )
+    )
+
+
+def test_mt5_adapter_keeps_private_routes_distinct() -> None:
+    real_adapter = MT5UniversalReadOnlyAdapter(
+        MemoryBridge(_payload(trade_mode="REAL", server="Vantage-Route-A"))
+    )
+    demo_adapter = MT5UniversalReadOnlyAdapter(
+        MemoryBridge(_payload(trade_mode="DEMO", server="Vantage-Route-B"))
+    )
+    real_alias = real_adapter.discover_accounts()[0].account_alias
+    demo_alias = demo_adapter.discover_accounts()[0].account_alias
+    assert real_alias != demo_alias
+
+
+def test_mt5_adapter_rejects_contest_and_unknown_accounts() -> None:
+    for mode in ("CONTEST", "UNKNOWN"):
+        payload = deepcopy(_payload())
+        payload["account"]["trade_mode"] = mode
+        with pytest.raises(MT5BridgeError, match="demo or live brokerage accounts only"):
+            MT5UniversalReadOnlyAdapter(MemoryBridge(payload))
 
 
 def test_mt5_adapter_requires_tick_value_in_account_currency() -> None:
@@ -149,10 +186,14 @@ def test_mt5_adapter_requires_explicit_canonical_symbol_match() -> None:
         )
 
 
-def test_mt5_bridge_script_contains_no_order_submission_surface() -> None:
+def test_mt5_bridge_script_supports_demo_real_and_no_order_surface() -> None:
     source = (Path(__file__).resolve().parents[1] / "scripts" / "mt5_readonly_bridge.py").read_text(
         encoding="utf-8"
     )
+    assert "ACCOUNT_TRADE_MODE_DEMO" in source
+    assert "ACCOUNT_TRADE_MODE_REAL" in source
+    assert "ACCOUNT_TRADE_MODE_CONTEST" in source
+    assert "does not accept contest accounts" in source
     assert "order_send(" not in source
     assert "positions_get(" not in source
     assert "orders_send" not in source
