@@ -11,8 +11,10 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .contracts import BrokerType
 from .execution import (
@@ -82,14 +84,14 @@ class NinjaTraderFileExecutionTransport:
         temporary.write_text(text, encoding="utf-8")
         try:
             os.link(temporary, path)
-        except FileExistsError:
+        except FileExistsError as exc:
             if path.read_text(encoding="utf-8") != text:
-                raise NinjaTraderExecutionIPCError("Concurrent NinjaTrader request conflict")
+                raise NinjaTraderExecutionIPCError(
+                    "Concurrent NinjaTrader request conflict"
+                ) from exc
         finally:
-            try:
+            with suppress(FileNotFoundError):
                 temporary.unlink()
-            except FileNotFoundError:
-                pass
 
     @staticmethod
     def _read_response(path: Path, *, command_id: str, operation: str) -> dict[str, Any]:
