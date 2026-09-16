@@ -51,7 +51,7 @@ def _masked_login(login: Any) -> str:
 
 
 def _account_key(server: str, login: Any) -> str:
-    material = f"{server}:{login}".encode("utf-8")
+    material = f"{server}:{login}".encode()
     return hashlib.sha256(material).hexdigest()
 
 
