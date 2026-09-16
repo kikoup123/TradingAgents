@@ -52,7 +52,7 @@ final class TimePriceEngineTests: XCTestCase {
 
     func testOpeningLevelTracksTouchAndBodyCross() throws {
         let bars = [
-            try bar(year: 2026, month: 9, day: 16, hour: 8, minute: 30, open: 100, high: 100.5, low: 99.5, close: 101),
+            try bar(year: 2026, month: 9, day: 16, hour: 8, minute: 30, open: 100, high: 101.5, low: 99.5, close: 101),
             try bar(year: 2026, month: 9, day: 16, hour: 8, minute: 31, open: 101, high: 102, low: 99.8, close: 101.5),
             try bar(year: 2026, month: 9, day: 16, hour: 8, minute: 32, open: 101.5, high: 101.5, low: 98.5, close: 99)
         ]
