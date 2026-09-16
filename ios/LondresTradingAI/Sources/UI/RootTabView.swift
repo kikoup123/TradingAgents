@@ -25,6 +25,7 @@ struct RootTabView: View {
 private struct DashboardView: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var journal: JournalStore
+    @EnvironmentObject private var paper: PaperTradingStore
 
     var body: some View {
         ScrollView {
@@ -42,6 +43,48 @@ private struct DashboardView: View {
                     MetricCard(title: "Trades", value: "\(summary.totalTrades)")
                     MetricCard(title: "Plan", value: String(format: "%.0f%%", summary.averagePlanCompliance))
                 }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Demo Accounts")
+                                .font(.headline)
+                            Text("Simulated / Paper Performance")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        NavigationLink("Details") {
+                            PaperPerformanceView()
+                        }
+                    }
+
+                    ForEach(paper.accounts) { account in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(account.preset.displayName)
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Start \(account.startingBalance.formatted(.currency(code: account.currencyCode)))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(account.balance.formatted(.currency(code: account.currencyCode)))
+                                    .font(.headline)
+                                Text(account.returnFraction.formatted(.percent.precision(.fractionLength(2))))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Text("Paper results are hypothetical and are not a guarantee of future returns.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
             }
             .padding()
         }
@@ -52,6 +95,7 @@ private struct DashboardView: View {
 private struct SignalsView: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var journal: JournalStore
+    @EnvironmentObject private var paper: PaperTradingStore
 
     var body: some View {
         List {
@@ -63,6 +107,14 @@ private struct SignalsView: View {
                     } label: {
                         Label("Add to Journal", systemImage: "plus.circle")
                     }
+                    .disabled(!signal.isActionable)
+
+                    Button {
+                        paper.register(signal: signal)
+                    } label: {
+                        Label("Track in $1K + $5K Demo Accounts", systemImage: "chart.line.uptrend.xyaxis")
+                    }
+                    .disabled(!signal.isActionable)
                 } header: {
                     Text("\(signal.context.symbol) · \(signal.context.direction.rawValue.uppercased())")
                 }
@@ -88,11 +140,9 @@ private struct JournalView: View {
                     ForEach(journal.trades) { trade in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
-                                Text(trade.signal.context.symbol)
-                                    .font(.headline)
+                                Text(trade.signal.context.symbol).font(.headline)
                                 Spacer()
-                                Text(trade.outcome.rawValue.uppercased())
-                                    .font(.caption.weight(.semibold))
+                                Text(trade.outcome.rawValue.uppercased()).font(.caption.weight(.semibold))
                             }
                             Text(trade.playbookModel)
                                 .font(.subheadline)
@@ -171,18 +221,26 @@ private struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(subscriptions.products, id: \.id) { product in
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(product.displayName)
                             Text(product.displayPrice)
                                 .font(.headline)
+                            if subscriptions.hasConfiguredIntroOffer(for: product) {
+                                Text(subscriptions.isEligibleForIntroOffer(product) ? "Eligible for introductory free trial" : "Introductory offer configured; this Apple ID is not eligible")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
                 Text(subscriptions.hasProAccess ? "Londres Pro active" : "Londres Pro not active")
+                Text("Target offer: 1 month free, then the normal subscription price. The free-trial duration and eligibility are controlled by App Store Connect and StoreKit.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Execution Boundary") {
-                Text("This iOS product generates analysis, signals and journal intelligence. Broker order execution remains disabled in V1.")
+                Text("This iOS product generates analysis, signals, paper performance and journal intelligence. Broker order execution remains disabled in V1.")
                     .font(.footnote)
             }
         }
@@ -197,10 +255,8 @@ private struct SignalHeroCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(signal.context.symbol)
-                        .font(.largeTitle.bold())
-                    Text(signal.context.direction.rawValue.uppercased())
-                        .font(.headline)
+                    Text(signal.context.symbol).font(.largeTitle.bold())
+                    Text(signal.context.direction.rawValue.uppercased()).font(.headline)
                 }
                 Spacer()
                 Text(signal.status == .valid ? "VALID" : "WAIT")
@@ -209,7 +265,6 @@ private struct SignalHeroCard: View {
                     .padding(.vertical, 6)
                     .background(.thinMaterial, in: Capsule())
             }
-
             SignalDetailContent(signal: signal)
         }
         .padding()
@@ -264,11 +319,8 @@ private struct MetricCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.title2.bold())
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.title2.bold())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
