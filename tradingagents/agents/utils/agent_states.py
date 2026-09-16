@@ -33,13 +33,13 @@ class RiskDebateState(TypedDict):
     latest_speaker: Annotated[str, "Analyst that spoke last"]
     current_aggressive_response: Annotated[
         str, "Latest response by the aggressive analyst"
-    ]  # Last response
+    ]  # Latest response
     current_conservative_response: Annotated[
         str, "Latest response by the conservative analyst"
-    ]  # Last response
+    ]  # Latest response
     current_neutral_response: Annotated[
         str, "Latest response by the neutral analyst"
-    ]  # Last response
+    ]  # Latest response
     judge_decision: Annotated[str, "Judge's decision"]
     count: Annotated[int, "Length of the current conversation"]  # Conversation length
 
@@ -157,9 +157,25 @@ class AgentState(MessagesState):
         dict,
         "Exact entry, executable/current stop, deterministic risk sizing, selected target, structural break-even state, and Phase 17 pre-broker authorization state",
     ]
+    broker_connection_state: Annotated[
+        dict,
+        "Phase 18 sanitized cTrader connection state: masked account, broker and connected/read-only status; demo/live classification and credentials excluded",
+    ]
+    broker_account_state: Annotated[
+        dict,
+        "Phase 18 sanitized broker balance/equity/margin/currency snapshot with masked account identity",
+    ]
+    broker_symbol_state: Annotated[
+        dict,
+        "Phase 18 broker-native symbol metadata including digits, pip geometry and broker volume constraints",
+    ]
+    broker_quote_state: Annotated[
+        dict,
+        "Phase 18 broker-native read-only bid/ask snapshots; no order capability",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation plus sanitized read-only broker-data context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
