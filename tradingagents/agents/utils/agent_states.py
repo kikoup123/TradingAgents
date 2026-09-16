@@ -117,9 +117,17 @@ class AgentState(MessagesState):
         dict,
         "Direction, CSD protected invalidation, MMXM objective and eligible post-confirmation locations",
     ]
+    stop_options_state: Annotated[
+        dict,
+        "Deterministic IOF-range and SMT-protected structural stop anchors available to the Trader",
+    ]
+    trader_stop_selection_state: Annotated[
+        dict,
+        "Hard-validated Trader choice of structural stop source; never broker authorization",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> stop-selection context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
