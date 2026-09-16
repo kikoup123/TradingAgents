@@ -125,9 +125,13 @@ class AgentState(MessagesState):
         dict,
         "Hard-validated Trader choice of structural stop source; never broker authorization",
     ]
+    risk_sizing_state: Annotated[
+        dict,
+        "Deterministic pips/ticks stop-range measurement and broker-step volume derived from account risk policy",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> stop-selection context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> stop-selection -> risk-sizing context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
