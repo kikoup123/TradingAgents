@@ -13,7 +13,6 @@ Execution is OFF unless ``--enable-execution`` is supplied explicitly.
 from __future__ import annotations
 
 import argparse
-import collections.abc
 import hashlib
 import json
 import math
@@ -32,7 +31,7 @@ NOT_FOUND = "NOT_FOUND"
 RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
 
 
-def _canonical_json(payload: collections.abc.Mapping[str, Any]) -> str:
+def _canonical_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
@@ -280,7 +279,7 @@ class MT5ExecutionHost:
         )
         return receipt
 
-    def _validate_account(self, command: collections.abc.Mapping[str, Any]) -> None:
+    def _validate_account(self, command: dict[str, Any]) -> None:
         account = self.mt5.account_info()
         terminal = self.mt5.terminal_info()
         if account is None or terminal is None:
@@ -310,10 +309,7 @@ class MT5ExecutionHost:
         if str(command.get("execution_style") or "") != "MARKET_ON_SIGNAL":
             raise RuntimeError("MT5 execution host supports MARKET_ON_SIGNAL only")
 
-    def _submit_exact_market(
-        self,
-        command: collections.abc.Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def _submit_exact_market(self, command: dict[str, Any]) -> dict[str, Any]:
         symbol_name = str(command["broker_symbol"])
         if not self.mt5.symbol_select(symbol_name, True):
             return self._reject("MT5_SYMBOL_SELECT_FAILED")
@@ -420,7 +416,7 @@ class MT5ExecutionHost:
             return self.mt5.ORDER_FILLING_RETURN
         raise RuntimeError("No explicit safe MT5 market-execution filling mode is available")
 
-    def _reconcile(self, command: collections.abc.Mapping[str, Any]) -> dict[str, Any]:
+    def _reconcile(self, command: dict[str, Any]) -> dict[str, Any]:
         symbol = str(command["broker_symbol"])
         magic = _magic(str(command["command_id"]))
         label = f"L33-{str(command['command_id'])[:20]}"
@@ -511,7 +507,7 @@ class MT5ExecutionHost:
     def _write_response(
         path: Path,
         *,
-        envelope: collections.abc.Mapping[str, Any],
+        envelope: dict[str, Any],
         receipt: dict[str, Any],
     ) -> None:
         payload = {
