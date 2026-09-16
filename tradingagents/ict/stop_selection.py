@@ -170,9 +170,12 @@ class StopSelectionEngine:
             if item.get("direction") != direction:
                 continue
             source_position = item.get("source_position")
-            if csd_position is not None and source_position is not None:
-                if int(source_position) <= int(csd_position):
-                    continue
+            if (
+                csd_position is not None
+                and source_position is not None
+                and int(source_position) <= int(csd_position)
+            ):
+                continue
             eligible.append(item)
 
         # The latest still-valid range supporting current delivery is the
