@@ -46,6 +46,22 @@ from .ctrader import (
 )
 from .ctrader_adapter import CTraderUniversalReadOnlyAdapter
 from .ctrader_valuation import conservative_loss_conversion_rate, resolve_linear_tick_value
+from .ninjatrader import (
+    NinjaTraderBridgeError,
+    NinjaTraderDiscoveredAccount,
+    NinjaTraderJsonBridgeTransport,
+    NinjaTraderReadOnlyBridge,
+    NinjaTraderUniversalReadOnlyAdapter,
+)
+from .ninjatrader_futures import (
+    NINJATRADER_EQUITY_INDEX_FUTURES,
+    ExchangeFuturesSpec,
+    FuturesContractResolution,
+    FuturesContractResolutionStatus,
+    NinjaTraderFuturesContractResolver,
+    ParsedNinjaTraderContract,
+    parse_ninjatrader_contract_symbol,
+)
 from .risk_normalization import (
     BrokerRiskNormalizationResult,
     BrokerRiskNormalizationStatus,
@@ -97,12 +113,24 @@ __all__ = [
     "CTraderTickValueSnapshot",
     "CTraderTokenSet",
     "CTraderUniversalReadOnlyAdapter",
+    "ExchangeFuturesSpec",
+    "FuturesContractResolution",
+    "FuturesContractResolutionStatus",
+    "NINJATRADER_EQUITY_INDEX_FUTURES",
+    "NinjaTraderBridgeError",
+    "NinjaTraderDiscoveredAccount",
+    "NinjaTraderFuturesContractResolver",
+    "NinjaTraderJsonBridgeTransport",
+    "NinjaTraderReadOnlyBridge",
+    "NinjaTraderUniversalReadOnlyAdapter",
     "OrchestrationPolicy",
+    "ParsedNinjaTraderContract",
     "PropFirmRiskLimits",
     "RiskBaseAccountAdapter",
     "SymbolMappingError",
     "TradeIntent",
     "canonicalize_symbol",
     "conservative_loss_conversion_rate",
+    "parse_ninjatrader_contract_symbol",
     "resolve_linear_tick_value",
 ]
