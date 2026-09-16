@@ -197,9 +197,13 @@ class AgentState(MessagesState):
         dict,
         "Phase 24 sanitized NinjaTrader read-only bridge discovery, per-account provider classification evidence, verified NQ/MNQ/ES/MES/YM/MYM futures contract metadata, explicit quarterly rollover resolution, Phase 22 freshness supervision, and Phase 23 mixed-account risk preparation",
     ]
+    ninjatrader_account_policy_state: Annotated[
+        dict,
+        "Phase 26 per-account NinjaTrader futures/prop policy: explicit allowed roots, account-specific max contracts, session/news/overnight/weekend checks, unsupported required-rule blocking, and no silent quantity resizing",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization -> broker connection/data freshness supervision -> mixed personal/prop per-account risk-base context -> NinjaTrader read-only account discovery and verified futures rollover context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization -> broker connection/data freshness supervision -> mixed personal/prop per-account risk-base context -> NinjaTrader read-only account discovery and verified futures rollover context -> per-account NinjaTrader futures and prop-firm rule policy",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
