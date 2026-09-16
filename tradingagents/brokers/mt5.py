@@ -2,8 +2,10 @@
 
 The bridge is deliberately account-data-only. It consumes a sanitized snapshot
 published by a local MT5 reader and exposes account, symbol and tick data through
-the same broker-agnostic contracts used by cTrader and NinjaTrader. No order
-submission, modification, cancellation or position-closing API is implemented.
+the same broker-agnostic contracts used by cTrader and NinjaTrader. Demo/live
+classification remains private local routing metadata and is never exposed by
+the public adapter. No order submission, modification, cancellation or
+position-closing API is implemented.
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ class MT5DiscoveredAccount:
             "provider": self.provider,
             "connected": self.connected,
             "currency": self.currency,
-            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
+            "account_scope": "BROKERAGE_ACCOUNTS",
             "account_environment": "HIDDEN_INTERNAL",
             "read_only": True,
             "order_submission_enabled": False,
@@ -121,6 +123,8 @@ class MT5JsonBridgeTransport:
 class MT5UniversalReadOnlyAdapter:
     """Expose one already-connected MT5 terminal through universal contracts."""
 
+    _SUPPORTED_PRIVATE_TRADE_MODES = {"DEMO", "REAL"}
+
     def __init__(
         self,
         bridge: MT5ReadOnlyBridge,
@@ -149,7 +153,7 @@ class MT5UniversalReadOnlyAdapter:
             "provider": status.get("provider"),
             "broker": status.get("broker"),
             "status": str(status.get("status") or "UNKNOWN").upper(),
-            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
+            "account_scope": "BROKERAGE_ACCOUNTS",
             "account_environment": "HIDDEN_INTERNAL",
             "read_only": True,
             "order_submission_enabled": False,
@@ -184,8 +188,9 @@ class MT5UniversalReadOnlyAdapter:
         terminal = payload.get("terminal")
         if not isinstance(row, dict) or not isinstance(terminal, dict):
             raise MT5BridgeError("MT5 account/terminal payload is invalid")
-        if str(row.get("trade_mode") or "").upper() != "REAL":
-            raise MT5BridgeError("Londres MT5 adapter accepts live brokerage accounts only")
+        private_trade_mode = str(row.get("trade_mode") or "").upper()
+        if private_trade_mode not in self._SUPPORTED_PRIVATE_TRADE_MODES:
+            raise MT5BridgeError("Londres MT5 adapter accepts demo or live brokerage accounts only")
         key = str(row.get("account_key") or "").strip()
         masked = str(row.get("masked_account") or "").strip()
         currency = str(row.get("currency") or "").strip().upper()
@@ -312,7 +317,7 @@ class MT5UniversalReadOnlyAdapter:
             "generated_at_ms": payload.get("generated_at_ms"),
             "bridge_status": payload.get("bridge_status"),
             "account_count": 1,
-            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
+            "account_scope": "BROKERAGE_ACCOUNTS",
             "account_environment": "HIDDEN_INTERNAL",
             "read_only": True,
             "order_submission_enabled": False,
@@ -327,7 +332,7 @@ class MT5UniversalReadOnlyAdapter:
 
     @staticmethod
     def _public_alias(account_key: str) -> str:
-        digest = hashlib.sha256(account_key.encode("utf-8")).hexdigest()[:8].upper()
+        digest = hashlib.sha256(account_key.encode()).hexdigest()[:8].upper()
         return f"MT5-{digest}"
 
     @classmethod
