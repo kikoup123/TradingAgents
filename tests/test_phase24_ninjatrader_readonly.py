@@ -6,11 +6,11 @@ from copy import deepcopy
 import pytest
 
 from tradingagents.brokers import (
+    NINJATRADER_EQUITY_INDEX_FUTURES,
     AccountClassification,
     AccountClassificationSource,
     BrokerSupervisionPolicy,
     FuturesContractResolutionStatus,
-    NINJATRADER_EQUITY_INDEX_FUTURES,
     NinjaTraderJsonBridgeTransport,
     NinjaTraderUniversalReadOnlyAdapter,
     OrchestrationPolicy,
