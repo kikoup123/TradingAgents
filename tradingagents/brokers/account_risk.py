@@ -82,12 +82,14 @@ class PropFirmRiskLimits:
             raise ValueError("daily_loss_limit must be finite and > 0")
         if not math.isfinite(self.daily_loss_used) or self.daily_loss_used < 0:
             raise ValueError("daily_loss_used must be finite and >= 0")
-        if self.remaining_drawdown_buffer is not None:
-            if not math.isfinite(self.remaining_drawdown_buffer):
-                raise ValueError("remaining_drawdown_buffer must be finite when supplied")
-        if self.nominal_account_size is not None:
-            if not math.isfinite(self.nominal_account_size) or self.nominal_account_size <= 0:
-                raise ValueError("nominal_account_size must be finite and > 0 when supplied")
+        if self.remaining_drawdown_buffer is not None and not math.isfinite(
+            self.remaining_drawdown_buffer
+        ):
+            raise ValueError("remaining_drawdown_buffer must be finite when supplied")
+        if self.nominal_account_size is not None and (
+            not math.isfinite(self.nominal_account_size) or self.nominal_account_size <= 0
+        ):
+            raise ValueError("nominal_account_size must be finite and > 0 when supplied")
 
     @property
     def remaining_daily_loss_buffer(self) -> float:
