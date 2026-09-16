@@ -137,13 +137,17 @@ class AgentState(MessagesState):
         dict,
         "Exact Phase 13 entry event from the first return into the confirmed post-CSD IOF range",
     ]
+    executable_stop_state: Annotated[
+        dict,
+        "Phase 14 executable stop derived from the selected structural anchor plus explicit broker tick/buffer policy",
+    ]
     execution_package_state: Annotated[
         dict,
-        "Exact entry plus structural stop choices and deterministic CSD target geometry awaiting final executable stop buffer",
+        "Exact entry, selected structural stop geometry, executable stop readiness, and deterministic CSD targets",
     ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> stop/risk -> target-management -> exact-entry context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
