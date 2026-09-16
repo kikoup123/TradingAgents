@@ -35,6 +35,13 @@ from .ctrader import (
 )
 from .ctrader_adapter import CTraderUniversalReadOnlyAdapter
 from .ctrader_valuation import conservative_loss_conversion_rate, resolve_linear_tick_value
+from .mt5 import (
+    MT5BridgeError,
+    MT5DiscoveredAccount,
+    MT5JsonBridgeTransport,
+    MT5ReadOnlyBridge,
+    MT5UniversalReadOnlyAdapter,
+)
 from .ninjatrader import (
     NinjaTraderBridgeError,
     NinjaTraderDiscoveredAccount,
@@ -98,6 +105,11 @@ __all__ = [
     "ExchangeFuturesSpec",
     "FuturesContractResolution",
     "FuturesContractResolutionStatus",
+    "MT5BridgeError",
+    "MT5DiscoveredAccount",
+    "MT5JsonBridgeTransport",
+    "MT5ReadOnlyBridge",
+    "MT5UniversalReadOnlyAdapter",
     "NINJATRADER_EQUITY_INDEX_FUTURES",
     "NinjaTraderBridgeError",
     "NinjaTraderDiscoveredAccount",
