@@ -81,6 +81,10 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]   # intentional re-exports
+# The base compatibility transport predates the hardened Phase 18 facade and
+# retains socket.timeout explicitly for Python 3.10-era compatibility. The
+# production facade in brokers/ctrader.py uses builtin TimeoutError.
+"tradingagents/brokers/ctrader_readonly.py" = ["UP041"]
 
 [tool.ruff.lint.isort]
 # Keep multiple aliased names from one module in a single combined import block
