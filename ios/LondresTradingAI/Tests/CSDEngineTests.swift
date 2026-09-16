@@ -6,7 +6,7 @@ final class CSDEngineTests: XCTestCase {
         let bars = [
             candle(0, open: 105, high: 106, low: 100, close: 104),
             candle(1, open: 104, high: 105, low: 95, close: 96),
-            candle(2, open: 96, high: 103, low: 98, close: 102),
+            candle(2, open: 96, high: 103, low: 96, close: 102),
             candle(3, open: 102, high: 103, low: 94, close: 100),
             candle(4, open: 100, high: 105, low: 96, close: 103)
         ]
@@ -28,7 +28,7 @@ final class CSDEngineTests: XCTestCase {
         let bars = [
             candle(0, open: 105, high: 106, low: 100, close: 104),
             candle(1, open: 104, high: 105, low: 95, close: 96),
-            candle(2, open: 96, high: 103, low: 98, close: 102),
+            candle(2, open: 96, high: 103, low: 96, close: 102),
             candle(3, open: 102, high: 103, low: 94, close: 100),
             candle(4, open: 100, high: 105, low: 96, close: 101)
         ]
@@ -44,7 +44,7 @@ final class CSDEngineTests: XCTestCase {
         let bars = [
             candle(0, open: 105, high: 106, low: 100, close: 104),
             candle(1, open: 104, high: 105, low: 95, close: 96),
-            candle(2, open: 96, high: 103, low: 98, close: 102),
+            candle(2, open: 96, high: 103, low: 96, close: 102),
             candle(3, open: 102, high: 103, low: 94, close: 100),
             candle(4, open: 100, high: 105, low: 96, close: 103)
         ]
