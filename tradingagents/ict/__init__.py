@@ -52,6 +52,7 @@ from .phase7 import LondresPhase7Engine
 from .phase8 import LondresPhase8Engine
 from .phase9 import LondresPhase9Engine
 from .phase10 import LondresPhase10Engine
+from .phase12 import LondresPhase12Engine
 from .risk_sizing import (
     ALLOWED_RISK_FRACTIONS,
     MAX_ACCOUNT_RISK_FRACTION,
@@ -76,6 +77,16 @@ from .stop_selection import (
     StopSelectionContext,
     StopSelectionEngine,
     StopSource,
+)
+from .target_management import (
+    CSDTargetEngine,
+    RunnerAction,
+    SDTarget,
+    TargetManagementContext,
+    TargetManagementStatus,
+    TraderExitMode,
+    manage_runner,
+    select_target_management,
 )
 from .time_price import (
     DEFAULT_ONS_CONFIGS,
@@ -116,10 +127,19 @@ __all__ = [
     "StopSelectionContext",
     "StopSelectionEngine",
     "StopSource",
+    "CSDTargetEngine",
+    "RunnerAction",
+    "SDTarget",
+    "TargetManagementContext",
+    "TargetManagementStatus",
+    "TraderExitMode",
+    "manage_runner",
+    "select_target_management",
     "LondresPhase7Engine",
     "LondresPhase8Engine",
     "LondresPhase9Engine",
     "LondresPhase10Engine",
+    "LondresPhase12Engine",
     "CSDPivotReference",
     "CSDResult",
     "CSDEngine",
