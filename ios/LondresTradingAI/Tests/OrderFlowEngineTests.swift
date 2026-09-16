@@ -35,7 +35,7 @@ final class OrderFlowEngineTests: XCTestCase {
     func testInvalidatedLatestRangeTransitionsWithoutOpposingConfirmation() throws {
         let bars = [
             candle(0, open: 100, high: 102, low: 95, close: 97),
-            candle(1, open: 97, high: 104, low: 96, close: 103),
+            candle(1, open: 104, high: 105, low: 97, close: 103),
             candle(2, open: 103, high: 104, low: 93, close: 94)
         ]
 
@@ -51,7 +51,7 @@ final class OrderFlowEngineTests: XCTestCase {
             candle(0, open: 100, high: 102, low: 95, close: 97),
             candle(1, open: 97, high: 104, low: 96, close: 103),
             candle(2, open: 103, high: 105, low: 100, close: 101),
-            candle(3, open: 101, high: 106, low: 100, close: 105)
+            candle(3, open: 101, high: 107, low: 100, close: 106)
         ]
 
         let confirmed = try OrderFlowEngine().findIOFCAfter(
