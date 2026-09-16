@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from tradingagents.brokers.contracts import (
+import pytest
+
+from tradingagents.brokers import (
     BrokerAccountSnapshot,
     BrokerCapabilities,
+    BrokerConnectionSupervisor,
     BrokerInstrumentSpec,
     BrokerQuote,
-    BrokerType,
-)
-from tradingagents.brokers.supervision import (
-    BrokerConnectionSupervisor,
     BrokerSupervisionPolicy,
     BrokerSupervisionStatus,
+    BrokerType,
 )
-from tradingagents.ict.phase22 import LondresPhase22BrokerSupervisionEngine
+from tradingagents.ict import LondresPhase22BrokerSupervisionEngine
 
 
 NOW_MS = 1_800_000_000_000
@@ -132,6 +132,15 @@ def _policy() -> BrokerSupervisionPolicy:
         max_reconnect_attempts=2,
         future_timestamp_tolerance_ms=50,
     )
+
+
+def test_policy_requires_explicit_positive_freshness_thresholds() -> None:
+    with pytest.raises(ValueError, match="quote_max_age_ms"):
+        BrokerSupervisionPolicy(
+            quote_max_age_ms=0,
+            tick_value_max_age_ms=5_000,
+            max_reconnect_attempts=2,
+        )
 
 
 def test_fresh_connected_broker_is_execution_data_ready() -> None:
