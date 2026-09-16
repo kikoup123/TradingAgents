@@ -51,6 +51,7 @@ from .phase6 import LondresPhase6Engine
 from .phase7 import LondresPhase7Engine
 from .phase8 import LondresPhase8Engine
 from .phase9 import LondresPhase9Engine
+from .phase10 import LondresPhase10Engine
 from .smt import (
     DEFAULT_SMT_GROUPS,
     SMTEngine,
@@ -60,6 +61,12 @@ from .smt import (
     SMTReference,
     SMTResult,
     SMTValidationState,
+)
+from .stop_selection import (
+    StopCandidate,
+    StopSelectionContext,
+    StopSelectionEngine,
+    StopSource,
 )
 from .time_price import (
     DEFAULT_ONS_CONFIGS,
@@ -89,9 +96,14 @@ __all__ = [
     "TradePlanContext",
     "TradePlanEngine",
     "TradePlanState",
+    "StopCandidate",
+    "StopSelectionContext",
+    "StopSelectionEngine",
+    "StopSource",
     "LondresPhase7Engine",
     "LondresPhase8Engine",
     "LondresPhase9Engine",
+    "LondresPhase10Engine",
     "CSDPivotReference",
     "CSDResult",
     "CSDEngine",
