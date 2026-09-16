@@ -84,8 +84,11 @@ def create_trader(llm):
                 "that one. Do not invent a different structural stop. Explain the choice using "
                 "MMXM/order-flow context and target geometry. The supplied price is a structural "
                 "anchor only; do not invent a tick buffer or executable stop-loss price yet. "
-                "Set stop_loss to null/omit it. If the Londres direction conflicts with your "
-                "transaction direction, choose Hold. "
+                "Set stop_loss to null/omit it. Do not choose a lot size, contract count, portfolio "
+                "percentage, or any other position size: Londres volume is calculated later by the "
+                "deterministic risk engine from the exact entry-to-stop pips/ticks and account-risk "
+                "policy. Set position_sizing to null/omit it. If the Londres direction conflicts "
+                "with your transaction direction, choose Hold. "
             )
 
         messages = [
