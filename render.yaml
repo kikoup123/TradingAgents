@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: londres-market-gateway
+    runtime: docker
+    dockerfilePath: ./services/londres_market_gateway/Dockerfile
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: DATABENTO_API_KEY
+        sync: false
+      - key: DATABENTO_DATASET
+        value: GLBX.MDP3
+      - key: LONDRES_MARKET_LIVE
+        value: "true"
+      - key: LONDRES_MARKET_SYMBOLS
+        value: NQ,ES,YM
+      - key: LONDRES_GATEWAY_BEARER_TOKEN
+        sync: false
