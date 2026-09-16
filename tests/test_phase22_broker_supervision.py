@@ -2,16 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tradingagents.brokers import (
-    BrokerAccountSnapshot,
-    BrokerCapabilities,
-    BrokerConnectionSupervisor,
-    BrokerInstrumentSpec,
-    BrokerQuote,
-    BrokerSupervisionPolicy,
-    BrokerSupervisionStatus,
-    BrokerType,
-)
+from tradingagents import brokers
 from tradingagents.ict import LondresPhase22BrokerSupervisionEngine
 
 
@@ -42,8 +33,8 @@ class SupervisedStubAdapter:
         return "stub-supervised"
 
     @property
-    def broker_type(self) -> BrokerType:
-        return BrokerType.NINJATRADER
+    def broker_type(self) -> brokers.BrokerType:
+        return brokers.BrokerType.NINJATRADER
 
     def public_status(self) -> dict:
         return {
@@ -58,8 +49,8 @@ class SupervisedStubAdapter:
             self.connected = True
         return self.public_status()
 
-    def capabilities(self) -> BrokerCapabilities:
-        return BrokerCapabilities(
+    def capabilities(self) -> brokers.BrokerCapabilities:
+        return brokers.BrokerCapabilities(
             supports_market_orders=True,
             supports_limit_orders=True,
             supports_stop_orders=True,
@@ -73,10 +64,10 @@ class SupervisedStubAdapter:
             execution_enabled=False,
         )
 
-    def account_snapshot(self, account_alias: str) -> BrokerAccountSnapshot:
+    def account_snapshot(self, account_alias: str) -> brokers.BrokerAccountSnapshot:
         if self.fail_reads:
             raise RuntimeError("read failed")
-        return BrokerAccountSnapshot(
+        return brokers.BrokerAccountSnapshot(
             account_alias=account_alias,
             broker_type=self.broker_type,
             broker_name="Stub Futures",
@@ -91,11 +82,11 @@ class SupervisedStubAdapter:
 
     def instrument_snapshot(
         self, *, account_alias: str, canonical_symbol: str, broker_symbol: str
-    ) -> BrokerInstrumentSpec:
+    ) -> brokers.BrokerInstrumentSpec:
         del account_alias
         if self.fail_reads:
             raise RuntimeError("read failed")
-        return BrokerInstrumentSpec(
+        return brokers.BrokerInstrumentSpec(
             canonical_symbol=canonical_symbol,
             broker_symbol=broker_symbol,
             tick_size=0.25,
@@ -112,11 +103,11 @@ class SupervisedStubAdapter:
 
     def quote_snapshot(
         self, *, account_alias: str, canonical_symbol: str, broker_symbol: str
-    ) -> BrokerQuote:
+    ) -> brokers.BrokerQuote:
         del account_alias
         if self.fail_reads:
             raise RuntimeError("read failed")
-        return BrokerQuote(
+        return brokers.BrokerQuote(
             canonical_symbol=canonical_symbol,
             broker_symbol=broker_symbol,
             bid=21900.0,
@@ -125,8 +116,8 @@ class SupervisedStubAdapter:
         )
 
 
-def _policy() -> BrokerSupervisionPolicy:
-    return BrokerSupervisionPolicy(
+def _policy() -> brokers.BrokerSupervisionPolicy:
+    return brokers.BrokerSupervisionPolicy(
         quote_max_age_ms=1_000,
         tick_value_max_age_ms=5_000,
         max_reconnect_attempts=2,
@@ -136,7 +127,7 @@ def _policy() -> BrokerSupervisionPolicy:
 
 def test_policy_requires_explicit_positive_freshness_thresholds() -> None:
     with pytest.raises(ValueError, match="quote_max_age_ms"):
-        BrokerSupervisionPolicy(
+        brokers.BrokerSupervisionPolicy(
             quote_max_age_ms=0,
             tick_value_max_age_ms=5_000,
             max_reconnect_attempts=2,
@@ -144,7 +135,7 @@ def test_policy_requires_explicit_positive_freshness_thresholds() -> None:
 
 
 def test_fresh_connected_broker_is_execution_data_ready() -> None:
-    result = BrokerConnectionSupervisor().check(
+    result = brokers.BrokerConnectionSupervisor().check(
         adapter=SupervisedStubAdapter(),
         account_alias="primary",
         canonical_symbol="NASDAQ",
@@ -153,7 +144,7 @@ def test_fresh_connected_broker_is_execution_data_ready() -> None:
         policy=_policy(),
     )
 
-    assert result.status == BrokerSupervisionStatus.HEALTHY
+    assert result.status == brokers.BrokerSupervisionStatus.HEALTHY
     assert result.execution_data_ready is True
     assert result.heartbeat_ok is True
     assert result.quote_age_ms == 100
@@ -167,7 +158,7 @@ def test_fresh_connected_broker_is_execution_data_ready() -> None:
 
 def test_disconnected_adapter_reconnects_before_data_is_accepted() -> None:
     adapter = SupervisedStubAdapter(connected=False, reconnect_succeeds=True)
-    result = BrokerConnectionSupervisor().check(
+    result = brokers.BrokerConnectionSupervisor().check(
         adapter=adapter,
         account_alias="primary",
         canonical_symbol="NASDAQ",
@@ -176,7 +167,7 @@ def test_disconnected_adapter_reconnects_before_data_is_accepted() -> None:
         policy=_policy(),
     )
 
-    assert result.status == BrokerSupervisionStatus.RECONNECTED
+    assert result.status == brokers.BrokerSupervisionStatus.RECONNECTED
     assert result.reconnect_attempted is True
     assert result.reconnect_attempts == 1
     assert result.reconnect_succeeded is True
@@ -185,7 +176,7 @@ def test_disconnected_adapter_reconnects_before_data_is_accepted() -> None:
 
 def test_reconnect_failure_is_fail_closed() -> None:
     adapter = SupervisedStubAdapter(connected=False, reconnect_succeeds=False)
-    result = BrokerConnectionSupervisor().check(
+    result = brokers.BrokerConnectionSupervisor().check(
         adapter=adapter,
         account_alias="primary",
         canonical_symbol="NASDAQ",
@@ -194,14 +185,14 @@ def test_reconnect_failure_is_fail_closed() -> None:
         policy=_policy(),
     )
 
-    assert result.status == BrokerSupervisionStatus.DISCONNECTED
+    assert result.status == brokers.BrokerSupervisionStatus.DISCONNECTED
     assert result.reconnect_attempts == 2
     assert result.execution_data_ready is False
 
 
 def test_stale_quote_blocks_execution_data_readiness() -> None:
     adapter = SupervisedStubAdapter(quote_timestamp_ms=NOW_MS - 1_001)
-    result = BrokerConnectionSupervisor().check(
+    result = brokers.BrokerConnectionSupervisor().check(
         adapter=adapter,
         account_alias="primary",
         canonical_symbol="NASDAQ",
@@ -210,14 +201,14 @@ def test_stale_quote_blocks_execution_data_readiness() -> None:
         policy=_policy(),
     )
 
-    assert result.status == BrokerSupervisionStatus.STALE_QUOTE
+    assert result.status == brokers.BrokerSupervisionStatus.STALE_QUOTE
     assert result.quote_age_ms == 1_001
     assert result.execution_data_ready is False
 
 
 def test_stale_market_dependent_tick_value_blocks_sizing_data() -> None:
     adapter = SupervisedStubAdapter(tick_timestamp_ms=NOW_MS - 5_001)
-    result = BrokerConnectionSupervisor().check(
+    result = brokers.BrokerConnectionSupervisor().check(
         adapter=adapter,
         account_alias="primary",
         canonical_symbol="NASDAQ",
@@ -226,14 +217,14 @@ def test_stale_market_dependent_tick_value_blocks_sizing_data() -> None:
         policy=_policy(),
     )
 
-    assert result.status == BrokerSupervisionStatus.STALE_TICK_VALUE
+    assert result.status == brokers.BrokerSupervisionStatus.STALE_TICK_VALUE
     assert result.tick_value_age_ms == 5_001
     assert result.execution_data_ready is False
 
 
 def test_static_verified_tick_value_needs_no_market_timestamp() -> None:
     adapter = SupervisedStubAdapter(tick_timestamp_ms=None)
-    result = BrokerConnectionSupervisor().check(
+    result = brokers.BrokerConnectionSupervisor().check(
         adapter=adapter,
         account_alias="primary",
         canonical_symbol="NASDAQ",
@@ -242,7 +233,7 @@ def test_static_verified_tick_value_needs_no_market_timestamp() -> None:
         policy=_policy(),
     )
 
-    assert result.status == BrokerSupervisionStatus.HEALTHY
+    assert result.status == brokers.BrokerSupervisionStatus.HEALTHY
     assert result.tick_value_age_ms is None
     assert result.execution_data_ready is True
     assert "TICK_VALUE_HAS_NO_MARKET_DEPENDENT_TIMESTAMP" in result.reason_codes
@@ -250,7 +241,7 @@ def test_static_verified_tick_value_needs_no_market_timestamp() -> None:
 
 def test_unresolved_tick_value_fails_closed() -> None:
     adapter = SupervisedStubAdapter(tick_value=None, tick_timestamp_ms=None)
-    result = BrokerConnectionSupervisor().check(
+    result = brokers.BrokerConnectionSupervisor().check(
         adapter=adapter,
         account_alias="primary",
         canonical_symbol="NASDAQ",
@@ -259,13 +250,13 @@ def test_unresolved_tick_value_fails_closed() -> None:
         policy=_policy(),
     )
 
-    assert result.status == BrokerSupervisionStatus.WAIT_FOR_VERIFIED_TICK_VALUE
+    assert result.status == brokers.BrokerSupervisionStatus.WAIT_FOR_VERIFIED_TICK_VALUE
     assert result.execution_data_ready is False
 
 
 def test_future_timestamp_beyond_explicit_tolerance_is_rejected() -> None:
     adapter = SupervisedStubAdapter(quote_timestamp_ms=NOW_MS + 51)
-    result = BrokerConnectionSupervisor().check(
+    result = brokers.BrokerConnectionSupervisor().check(
         adapter=adapter,
         account_alias="primary",
         canonical_symbol="NASDAQ",
@@ -274,7 +265,7 @@ def test_future_timestamp_beyond_explicit_tolerance_is_rejected() -> None:
         policy=_policy(),
     )
 
-    assert result.status == BrokerSupervisionStatus.INVALID_TIMESTAMP
+    assert result.status == brokers.BrokerSupervisionStatus.INVALID_TIMESTAMP
     assert result.execution_data_ready is False
 
 
