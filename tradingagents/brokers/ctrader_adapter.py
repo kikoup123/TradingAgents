@@ -53,6 +53,23 @@ class CTraderUniversalReadOnlyAdapter:
             "order_submission_enabled": False,
         }
 
+    def reconnect(self) -> dict:
+        """Re-establish the read-only session for Phase 22 supervision.
+
+        Reconnect never changes OAuth scope or enables trading. The underlying
+        connector still authenticates only the configured masked account and
+        keeps demo/live classification internal.
+        """
+
+        try:
+            self._connector.close()
+        except Exception:
+            pass
+        return self._connector.connect()
+
+    def close(self) -> None:
+        self._connector.close()
+
     def capabilities(self) -> BrokerCapabilities:
         return BrokerCapabilities(
             supports_market_orders=True,
