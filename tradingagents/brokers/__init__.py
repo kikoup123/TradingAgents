@@ -20,6 +20,7 @@ from .contracts import (
 from .ctrader import (
     CTraderAccountSnapshot,
     CTraderConnectionError,
+    CTraderConversionLeg,
     CTraderEnvironment,
     CTraderJsonReadOnlyTransport,
     CTraderOAuthClient,
@@ -29,9 +30,16 @@ from .ctrader import (
     CTraderReadOnlyTransport,
     CTraderSecretConfig,
     CTraderSymbolSnapshot,
+    CTraderTickValueSnapshot,
     CTraderTokenSet,
 )
 from .ctrader_adapter import CTraderUniversalReadOnlyAdapter
+from .ctrader_valuation import conservative_loss_conversion_rate, resolve_linear_tick_value
+from .risk_normalization import (
+    BrokerRiskNormalizationResult,
+    BrokerRiskNormalizationStatus,
+    BrokerRiskNormalizer,
+)
 from .symbols import BrokerSymbolMap, SymbolMappingError
 
 __all__ = [
@@ -40,11 +48,15 @@ __all__ = [
     "BrokerCapabilities",
     "BrokerInstrumentSpec",
     "BrokerQuote",
+    "BrokerRiskNormalizationResult",
+    "BrokerRiskNormalizationStatus",
+    "BrokerRiskNormalizer",
     "BrokerSymbolMap",
     "BrokerType",
     "CanonicalSymbol",
     "CTraderAccountSnapshot",
     "CTraderConnectionError",
+    "CTraderConversionLeg",
     "CTraderEnvironment",
     "CTraderJsonReadOnlyTransport",
     "CTraderOAuthClient",
@@ -54,10 +66,13 @@ __all__ = [
     "CTraderReadOnlyTransport",
     "CTraderSecretConfig",
     "CTraderSymbolSnapshot",
+    "CTraderTickValueSnapshot",
     "CTraderTokenSet",
     "CTraderUniversalReadOnlyAdapter",
     "OrchestrationPolicy",
     "SymbolMappingError",
     "TradeIntent",
     "canonicalize_symbol",
+    "conservative_loss_conversion_rate",
+    "resolve_linear_tick_value",
 ]
