@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from tradingagents.brokers import (
+from tradingagents.brokers.contracts import (
     BrokerAccountSnapshot,
     BrokerCapabilities,
-    BrokerConnectionSupervisor,
     BrokerInstrumentSpec,
     BrokerQuote,
-    BrokerSupervisionPolicy,
-    BrokerSupervisionStatus,
     BrokerType,
 )
-from tradingagents.ict import LondresPhase22BrokerSupervisionEngine
+from tradingagents.brokers.supervision import (
+    BrokerConnectionSupervisor,
+    BrokerSupervisionPolicy,
+    BrokerSupervisionStatus,
+)
+from tradingagents.ict.phase22 import LondresPhase22BrokerSupervisionEngine
 
 
 NOW_MS = 1_800_000_000_000
