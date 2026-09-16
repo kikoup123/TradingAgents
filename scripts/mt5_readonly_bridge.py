@@ -2,8 +2,10 @@
 """Publish a sanitized read-only MetaTrader 5 snapshot for Londres.
 
 Run this script on the machine/session where the MT5 terminal is already logged
-into the intended live brokerage account. It never calls order_send, never stores
-credentials, and never writes the full account login to the snapshot.
+into the intended demo or live brokerage account. It never calls order_send,
+never stores credentials, and never writes the full account login to the
+snapshot. Account environment is retained only in the private local snapshot and
+must never be surfaced by the public adapter.
 
 Example:
     python scripts/mt5_readonly_bridge.py \
@@ -55,6 +57,20 @@ def _account_key(server: str, login: Any) -> str:
     return hashlib.sha256(material).hexdigest()
 
 
+def _private_trade_mode(mt5: Any, account_data: dict[str, Any]) -> str:
+    raw_mode = int(account_data.get("trade_mode", -1))
+    demo_mode = int(getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", 0))
+    contest_mode = int(getattr(mt5, "ACCOUNT_TRADE_MODE_CONTEST", 1))
+    real_mode = int(getattr(mt5, "ACCOUNT_TRADE_MODE_REAL", 2))
+    if raw_mode == real_mode:
+        return "REAL"
+    if raw_mode == demo_mode:
+        return "DEMO"
+    if raw_mode == contest_mode:
+        raise RuntimeError("Londres MT5 bridge does not accept contest accounts")
+    raise RuntimeError("Londres MT5 bridge accepts demo or live brokerage accounts only")
+
+
 def _snapshot(mt5: Any, symbols: list[tuple[str, str]]) -> dict[str, Any]:
     generated_at_ms = time.time_ns() // 1_000_000
     account = mt5.account_info()
@@ -64,9 +80,7 @@ def _snapshot(mt5: Any, symbols: list[tuple[str, str]]) -> dict[str, Any]:
 
     account_data = account._asdict()
     terminal_data = terminal._asdict()
-    real_mode = getattr(mt5, "ACCOUNT_TRADE_MODE_REAL", 2)
-    if int(account_data.get("trade_mode", -1)) != int(real_mode):
-        raise RuntimeError("Londres MT5 bridge accepts live brokerage accounts only")
+    private_trade_mode = _private_trade_mode(mt5, account_data)
 
     company = str(account_data.get("company") or "").strip()
     server = str(account_data.get("server") or "").strip()
@@ -143,7 +157,7 @@ def _snapshot(mt5: Any, symbols: list[tuple[str, str]]) -> dict[str, Any]:
             "provider": company,
             "server": server,
             "connected": connected,
-            "trade_mode": "REAL",
+            "trade_mode": private_trade_mode,
             "currency": currency,
             "balance": float(account_data.get("balance") or 0.0),
             "equity": float(account_data.get("equity") or 0.0),
