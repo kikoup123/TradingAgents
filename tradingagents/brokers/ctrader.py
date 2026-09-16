@@ -7,7 +7,6 @@ request waits for its own response, instead of being repeatedly re-consumed.
 
 from __future__ import annotations
 
-import socket
 import time
 from typing import Any
 
@@ -130,7 +129,7 @@ class CTraderJsonReadOnlyTransport(_BaseJsonReadOnlyTransport):
                 raise CTraderConnectionError("cTrader transport disconnected")
             try:
                 chunk = self._socket.recv(65536)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError as exc:
                 raise CTraderConnectionError("Failed while receiving cTrader Open API data") from exc
