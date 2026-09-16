@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
+
 from .contracts import (
     BrokerAccountSnapshot,
     BrokerCapabilities,
@@ -61,10 +63,8 @@ class CTraderUniversalReadOnlyAdapter:
         keeps demo/live classification internal.
         """
 
-        try:
+        with suppress(Exception):
             self._connector.close()
-        except Exception:
-            pass
         return self._connector.connect()
 
     def close(self) -> None:
