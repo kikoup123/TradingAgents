@@ -1,7 +1,7 @@
 """Production-facing hardened cTrader read-only facade.
 
 This module wraps the Phase 18 JSON transport with event-safe response
-correlation.  Unrelated asynchronous messages are parked while a synchronous
+correlation. Unrelated asynchronous messages are parked while a synchronous
 request waits for its own response, instead of being repeatedly re-consumed.
 """
 
@@ -24,11 +24,65 @@ from .ctrader_readonly import (
     CTraderSecretConfig,
     CTraderSymbolSnapshot,
     CTraderTokenSet,
+    _mask_account,
 )
 
 
 class CTraderJsonReadOnlyTransport(_BaseJsonReadOnlyTransport):
-    """Event-safe read-only JSON transport."""
+    """Event-safe read-only JSON transport with strict scope verification."""
+
+    def authenticate_read_only(self, config: CTraderSecretConfig) -> dict[str, Any]:
+        if config is not self._config and config != self._config:
+            raise CTraderReadOnlyError("Transport configuration mismatch")
+        self.connect()
+        self._request(
+            2100,
+            {"clientId": config.client_id, "clientSecret": config.client_secret},
+            expected={2101},
+        )
+        account_list = self._request(
+            2149,
+            {"accessToken": config.access_token},
+            expected={2150},
+        )
+        payload = account_list.get("payload") or {}
+        permission = payload.get("permissionScope")
+        if permission not in (0, "0", "SCOPE_VIEW"):
+            raise CTraderReadOnlyError(
+                "Read-only connector requires an explicitly verified view-only permission scope"
+            )
+
+        accounts = payload.get("ctidTraderAccount") or []
+        descriptor = next(
+            (
+                item
+                for item in accounts
+                if int(item.get("ctidTraderAccountId", -1)) == config.account_id
+            ),
+            None,
+        )
+        if descriptor is None:
+            raise CTraderReadOnlyError("Configured account is not granted to this access token")
+        expected_live = config.environment is CTraderEnvironment.LIVE
+        if bool(descriptor.get("isLive")) != expected_live:
+            raise CTraderReadOnlyError("Configured cTrader endpoint does not match the account environment")
+
+        auth = self._request(
+            2102,
+            {
+                "ctidTraderAccountId": config.account_id,
+                "accessToken": config.access_token,
+            },
+            expected={2103},
+        )
+        if int((auth.get("payload") or {}).get("ctidTraderAccountId", -1)) != config.account_id:
+            raise CTraderReadOnlyError("cTrader authenticated an unexpected account")
+        self._account_descriptor = dict(descriptor)
+        return {
+            "connected": True,
+            "broker": descriptor.get("brokerTitleShort"),
+            "masked_account": _mask_account(descriptor.get("traderLogin") or config.account_id),
+        }
 
     def _wait_for(
         self,
