@@ -40,17 +40,27 @@ from .risk_normalization import (
     BrokerRiskNormalizationStatus,
     BrokerRiskNormalizer,
 )
+from .supervision import (
+    BrokerConnectionSupervisor,
+    BrokerSupervisionPolicy,
+    BrokerSupervisionResult,
+    BrokerSupervisionStatus,
+)
 from .symbols import BrokerSymbolMap, SymbolMappingError
 
 __all__ = [
     "BrokerAccountSnapshot",
     "BrokerAdapter",
     "BrokerCapabilities",
+    "BrokerConnectionSupervisor",
     "BrokerInstrumentSpec",
     "BrokerQuote",
     "BrokerRiskNormalizationResult",
     "BrokerRiskNormalizationStatus",
     "BrokerRiskNormalizer",
+    "BrokerSupervisionPolicy",
+    "BrokerSupervisionResult",
+    "BrokerSupervisionStatus",
     "BrokerSymbolMap",
     "BrokerType",
     "CanonicalSymbol",
