@@ -1,0 +1,40 @@
+name: Londres iOS CI
+
+on:
+  pull_request:
+    paths:
+      - 'ios/LondresTradingAI/**'
+      - 'docs/LONDRES_IOS_SIGNAL_APP.md'
+      - '.github/workflows/ios-londres.yml'
+  push:
+    branches:
+      - 'londres/ios-signal-journal-v1'
+    paths:
+      - 'ios/LondresTradingAI/**'
+      - 'docs/LONDRES_IOS_SIGNAL_APP.md'
+      - '.github/workflows/ios-londres.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios/LondresTradingAI
+        run: xcodegen generate
+
+      - name: Build for iOS Simulator
+        working-directory: ios/LondresTradingAI
+        run: >-
+          xcodebuild
+          -project LondresTradingAI.xcodeproj
+          -scheme LondresTradingAI
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+          build
