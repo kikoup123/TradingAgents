@@ -55,7 +55,7 @@ final class PaperTradingStoreTests: XCTestCase {
         store.register(signal: signal)
 
         store.process(
-            candle(
+            candle: candle(
                 time: signal.createdAt.addingTimeInterval(60),
                 open: 100,
                 high: 121,
