@@ -28,7 +28,7 @@ jobs:
         working-directory: ios/LondresTradingAI
         run: xcodegen generate
 
-      - name: Build for iOS Simulator
+      - name: Build app and tests for iOS Simulator
         working-directory: ios/LondresTradingAI
         run: >-
           xcodebuild
@@ -37,4 +37,4 @@ jobs:
           -sdk iphonesimulator
           -destination 'generic/platform=iOS Simulator'
           CODE_SIGNING_ALLOWED=NO
-          build
+          build-for-testing
