@@ -67,6 +67,7 @@ from .phase10 import LondresPhase10Engine
 from .phase12 import LondresPhase12Engine
 from .phase13 import LondresPhase13Engine
 from .phase14 import LondresPhase14Engine
+from .phase15 import LondresPhase15Engine
 from .risk_sizing import (
     ALLOWED_RISK_FRACTIONS,
     MAX_ACCOUNT_RISK_FRACTION,
@@ -112,6 +113,11 @@ from .time_price import (
     TimePriceEngine,
     TimePriceResult,
 )
+from .trade_calculator import (
+    TradeCalculationResult,
+    TradeCalculationStatus,
+    TradeCalculatorEngine,
+)
 from .trade_plan import TradePlanContext, TradePlanEngine, TradePlanState
 from .weekly_profile import WeeklyProfileEngine
 
@@ -131,6 +137,9 @@ __all__ = [
     "ExecutableStopEngine",
     "ExecutableStopResult",
     "ExecutableStopStatus",
+    "TradeCalculationResult",
+    "TradeCalculationStatus",
+    "TradeCalculatorEngine",
     "PriceDeliveryEngine",
     "FairValueEngine",
     "FairValueGap",
@@ -164,6 +173,7 @@ __all__ = [
     "LondresPhase12Engine",
     "LondresPhase13Engine",
     "LondresPhase14Engine",
+    "LondresPhase15Engine",
     "CSDPivotReference",
     "CSDResult",
     "CSDEngine",
