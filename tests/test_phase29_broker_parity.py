@@ -211,7 +211,7 @@ def test_fp_markets_ctrader_and_vantage_mt5_reach_same_read_only_boundary() -> N
 
 
 def test_vantage_provider_identity_mismatch_fails_closed() -> None:
-    bindings = _bindings(_mt5_payload(company="Not Vantage Broker"))
+    bindings = _bindings(_mt5_payload(company="Other Broker Ltd"))
     result = LondresPhase29BrokerParityEngine().prepare(
         intent=_intent(),
         bindings=bindings,
