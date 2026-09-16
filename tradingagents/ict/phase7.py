@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
+from .daily_profile import FIXED_UTC_MINUS_4
 from .market_data import closed_bars
 from .narrative import DEFAULT_HIERARCHY, NarrativeEngine
 from .phase6 import LondresPhase6Engine
@@ -43,7 +44,14 @@ class LondresPhase7Engine:
             narrative_bars = closed_bars(
                 timeframe_bars[context["csd_timeframe"]], phase6_inputs.get("as_of")
             )
-            execution_bars = closed_bars(phase6_inputs["csd_bars"], phase6_inputs.get("as_of"))
+            execution_bars = closed_bars(
+                phase6_inputs["csd_bars"], phase6_inputs.get("as_of")
+            )
+            # Equal market instants may arrive as UTC from one provider and
+            # fixed UTC-4 from another. Normalize both representations before
+            # requiring exact stream equality.
+            narrative_bars.index = narrative_bars.index.tz_convert(FIXED_UTC_MINUS_4)
+            execution_bars.index = execution_bars.index.tz_convert(FIXED_UTC_MINUS_4)
             same_stream = narrative_bars.equals(execution_bars)
         draw = local["narrative_draw"]
         continuation_draw = bool(draw and draw.get("purpose") == "LIQUIDITY_OBJECTIVE")
