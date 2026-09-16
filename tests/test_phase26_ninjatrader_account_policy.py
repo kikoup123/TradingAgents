@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from tradingagents.brokers import BrokerSupervisionPolicy, OrchestrationPolicy, TradeIntent
-from tradingagents.ict.phase26 import LondresPhase26NinjaTraderAccountPolicyEngine, NinjaTraderAccountRuleProfile, NinjaTraderTradeRuleContext
+from tradingagents.ict.phase26 import (
+    LondresPhase26NinjaTraderAccountPolicyEngine,
+    NinjaTraderAccountRuleProfile,
+    NinjaTraderTradeRuleContext,
+)
 
 NOW_MS = 1_800_000_000_000
 
