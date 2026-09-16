@@ -28,12 +28,20 @@ final class PaperTradingStore: ObservableObject {
     }
 
     func register(signal: LondresSignal, signaledAt: Date? = nil) {
-        guard signal.status == .valid, signal.geometry != nil else { return }
+        guard signal.status == .valid, let geometry = signal.geometry else { return }
+        let deterministicSignalTime = signaledAt ?? signal.createdAt
 
         for index in accounts.indices {
-            guard !accounts[index].trades.contains(where: { $0.signalID == signal.id }) else { continue }
+            let alreadyRegistered = accounts[index].trades.contains {
+                $0.signalID == signal.id
+                    || ($0.symbol == signal.context.symbol
+                        && $0.direction == signal.context.direction
+                        && $0.geometry == geometry
+                        && $0.signaledAt == deterministicSignalTime)
+            }
+            guard !alreadyRegistered else { continue }
             accounts[index].trades.insert(
-                PaperTrade(signal: signal, signaledAt: signaledAt),
+                PaperTrade(signal: signal, signaledAt: deterministicSignalTime),
                 at: 0
             )
         }
