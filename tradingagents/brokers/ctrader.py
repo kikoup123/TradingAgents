@@ -3,6 +3,10 @@
 This module wraps the Phase 18 JSON transport with event-safe response
 correlation. Unrelated asynchronous messages are parked while a synchronous
 request waits for its own response, instead of being repeatedly re-consumed.
+
+Phase 21 also resolves cTrader tick value per volume unit in the account deposit
+currency from broker-provided symbol geometry, conversion chains and live
+bid/ask events. It remains read-only and exposes no order submission method.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from .ctrader_readonly import (
     CTraderTokenSet,
     _mask_account,
 )
+from .ctrader_valuation import CTraderConversionLeg, CTraderTickValueSnapshot, resolve_linear_tick_value
 
 
 class CTraderJsonReadOnlyTransport(_BaseJsonReadOnlyTransport):
@@ -82,6 +87,141 @@ class CTraderJsonReadOnlyTransport(_BaseJsonReadOnlyTransport):
             "broker": descriptor.get("brokerTitleShort"),
             "masked_account": _mask_account(descriptor.get("traderLogin") or config.account_id),
         }
+
+    def read_tick_value(self, account_id: int, symbol: str) -> CTraderTickValueSnapshot:
+        """Resolve one-tick cash risk for one cTrader volume unit.
+
+        Open API symbol volume is expressed in hundredths of a unit. The public
+        connector normalizes it back to units, so the risk engine needs the cash
+        value of one display tick for exactly one such unit. For a linear cTrader
+        symbol this is ``tick_size`` in quote-asset terms, converted into the
+        account deposit asset through cTrader's own conversion chain.
+        """
+
+        self._require_account(account_id)
+        symbol_snapshot = self.read_symbol(account_id, symbol)
+
+        trader_message = self._request(
+            2121,
+            {"ctidTraderAccountId": account_id},
+            expected={2122},
+        )
+        trader = (trader_message.get("payload") or {}).get("trader") or {}
+        deposit_asset_raw = trader.get("depositAssetId")
+        if deposit_asset_raw is None:
+            raise CTraderReadOnlyError("Trader response is missing depositAssetId")
+        deposit_asset_id = int(deposit_asset_raw)
+
+        assets_message = self._request(
+            2112,
+            {"ctidTraderAccountId": account_id},
+            expected={2113},
+        )
+        assets = (assets_message.get("payload") or {}).get("asset") or []
+        account_currency = next(
+            (
+                str(asset.get("name"))
+                for asset in assets
+                if int(asset.get("assetId", -1)) == deposit_asset_id
+            ),
+            None,
+        )
+        if not account_currency:
+            raise CTraderReadOnlyError("Account deposit asset name is unavailable")
+
+        symbols_message = self._request(
+            2114,
+            {"ctidTraderAccountId": account_id, "includeArchivedSymbols": False},
+            expected={2115},
+        )
+        light_symbols = (symbols_message.get("payload") or {}).get("symbol") or []
+        light_symbol = next(
+            (
+                item
+                for item in light_symbols
+                if int(item.get("symbolId", -1)) == symbol_snapshot.symbol_id
+            ),
+            None,
+        )
+        if light_symbol is None:
+            raise CTraderReadOnlyError("Resolved symbol is missing from cTrader light-symbol list")
+        quote_asset_raw = light_symbol.get("quoteAssetId")
+        if quote_asset_raw is None:
+            raise CTraderReadOnlyError("cTrader light symbol is missing quoteAssetId")
+        quote_asset_id = int(quote_asset_raw)
+
+        legs: list[CTraderConversionLeg] = []
+        if quote_asset_id != deposit_asset_id:
+            conversion_message = self._request(
+                2118,
+                {
+                    "ctidTraderAccountId": account_id,
+                    "firstAssetId": quote_asset_id,
+                    "lastAssetId": deposit_asset_id,
+                },
+                expected={2119},
+            )
+            conversion_symbols = (conversion_message.get("payload") or {}).get("symbol") or []
+            if not conversion_symbols:
+                raise CTraderReadOnlyError("cTrader returned no conversion chain for tick valuation")
+
+            conversion_ids = [int(item["symbolId"]) for item in conversion_symbols]
+            self._request(
+                2127,
+                {
+                    "ctidTraderAccountId": account_id,
+                    "symbolId": conversion_ids,
+                    "subscribeToSpotTimestamp": True,
+                },
+                expected={2128},
+            )
+            for item in conversion_symbols:
+                symbol_id = int(item["symbolId"])
+                base_raw = item.get("baseAssetId")
+                quote_raw = item.get("quoteAssetId")
+                if base_raw is None or quote_raw is None:
+                    raise CTraderReadOnlyError(
+                        "cTrader conversion symbol is missing baseAssetId or quoteAssetId"
+                    )
+                event = self._wait_for(
+                    expected={2131},
+                    predicate=lambda message, sid=symbol_id: int(
+                        (message.get("payload") or {}).get("symbolId", -1)
+                    )
+                    == sid,
+                )
+                payload = event.get("payload") or {}
+                bid_raw = payload.get("bid")
+                ask_raw = payload.get("ask")
+                if bid_raw is None or ask_raw is None:
+                    raise CTraderReadOnlyError(
+                        "cTrader conversion spot event requires both bid and ask"
+                    )
+                legs.append(
+                    CTraderConversionLeg(
+                        symbol_id=symbol_id,
+                        symbol=str(item.get("symbolName") or symbol_id),
+                        base_asset_id=int(base_raw),
+                        quote_asset_id=int(quote_raw),
+                        bid=float(bid_raw) / 100000.0,
+                        ask=float(ask_raw) / 100000.0,
+                        timestamp_ms=(
+                            int(payload["timestamp"]) if payload.get("timestamp") is not None else None
+                        ),
+                    )
+                )
+
+        try:
+            return resolve_linear_tick_value(
+                symbol=symbol_snapshot.symbol,
+                account_currency=account_currency,
+                tick_size=symbol_snapshot.display_tick_size,
+                quote_asset_id=quote_asset_id,
+                deposit_asset_id=deposit_asset_id,
+                conversion_legs=legs,
+            )
+        except ValueError as exc:
+            raise CTraderReadOnlyError("Unable to verify cTrader account-currency tick value") from exc
 
     def _wait_for(
         self,
@@ -148,7 +288,7 @@ class CTraderJsonReadOnlyTransport(_BaseJsonReadOnlyTransport):
 
 
 class CTraderReadOnlyConnector(_BaseReadOnlyConnector):
-    """Public Phase 18 connector using the hardened JSON transport by default."""
+    """Public read-only connector using the hardened JSON transport by default."""
 
     def __init__(
         self,
@@ -161,10 +301,23 @@ class CTraderReadOnlyConnector(_BaseReadOnlyConnector):
             transport=transport or CTraderJsonReadOnlyTransport(config),
         )
 
+    def tick_value_snapshot(self, symbol: str) -> dict[str, Any]:
+        """Return sanitized, broker-verified tick valuation metadata."""
+
+        self._require_connected()
+        resolver = getattr(self._transport, "read_tick_value", None)
+        if resolver is None:
+            raise CTraderReadOnlyError("Configured cTrader transport cannot resolve tick value")
+        snapshot = resolver(self._config.account_id, symbol)
+        if not isinstance(snapshot, CTraderTickValueSnapshot):
+            raise CTraderReadOnlyError("cTrader transport returned an invalid tick-value snapshot")
+        return snapshot.public_dict()
+
 
 __all__ = [
     "CTraderAccountSnapshot",
     "CTraderConnectionError",
+    "CTraderConversionLeg",
     "CTraderEnvironment",
     "CTraderJsonReadOnlyTransport",
     "CTraderOAuthClient",
@@ -174,5 +327,6 @@ __all__ = [
     "CTraderReadOnlyTransport",
     "CTraderSecretConfig",
     "CTraderSymbolSnapshot",
+    "CTraderTickValueSnapshot",
     "CTraderTokenSet",
 ]
