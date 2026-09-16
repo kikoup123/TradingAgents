@@ -9,9 +9,10 @@ blindly retried.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 
 from .contracts import BrokerType
 
@@ -78,7 +79,9 @@ class BrokerExecutionReceipt:
             "submitted_at_ms": self.submitted_at_ms,
             "acknowledged_at_ms": self.acknowledged_at_ms,
         }.items():
-            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
                 raise ValueError(f"{name} must be a non-negative integer when supplied")
 
     @property
