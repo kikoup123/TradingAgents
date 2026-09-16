@@ -209,9 +209,13 @@ class AgentState(MessagesState):
         dict,
         "Phase 28 fresh verified per-account prop risk telemetry: provider-defined daily-loss usage and remaining drawdown buffer injected before Phase 27, with explicit freshness/provider/currency checks and no nominal-account-size or generic-PnL inference",
     ]
+    prop_firm_compliance_state: Annotated[
+        dict,
+        "Phase 29 provider-specific live prop compliance: researched rule snapshot provenance/cache, current performance metrics, exact-formula adapters for consistency/scaling rules, and fail-closed handling when formulas or metrics are unavailable",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization -> broker connection/data freshness supervision -> mixed personal/prop per-account risk-base context -> NinjaTrader read-only account discovery and verified futures rollover context -> per-account NinjaTrader futures and prop-firm rule policy -> current official-source prop-firm rule research and conservative adaptation -> fresh verified dynamic prop-risk telemetry",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization -> broker connection/data freshness supervision -> mixed personal/prop per-account risk-base context -> NinjaTrader read-only account discovery and verified futures rollover context -> per-account NinjaTrader futures and prop-firm rule policy -> current official-source prop-firm rule research and conservative adaptation -> fresh verified dynamic prop-risk telemetry -> provider-specific live prop compliance and rule-cache provenance",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
