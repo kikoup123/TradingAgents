@@ -137,9 +137,22 @@ enum LondresStrategyPipelineError: Error, Equatable {
     case missingTimeframe(String)
     case noExecutionBars
     case instrumentSymbolMismatch
+    case invalidExecutionTimeframe(String)
+    case invalidExecutionCandleTimeframe
+    case executionStreamMismatch
+    case invalidExecutionHierarchy
 }
 
 struct LondresStrategyPipeline: Sendable {
+    static let executionTimeframe = "5m"
+
+    static func executionHierarchy(from hierarchy: [String]) throws -> [String] {
+        guard let executionIndex = hierarchy.firstIndex(of: executionTimeframe) else {
+            throw LondresStrategyPipelineError.invalidExecutionHierarchy
+        }
+        return Array(hierarchy[...executionIndex])
+    }
+
     func analyze(_ input: LondresStrategyInput) throws -> LondresStrategyResult {
         let timeframeBars = clipped(input.timeframeBars, asOf: input.asOf)
         let intradayBars = clipped(input.intradayBars, asOf: input.asOf)
@@ -147,8 +160,33 @@ struct LondresStrategyPipeline: Sendable {
         let csdBars = clipped(input.csdBars, asOf: input.asOf)
         let smtBars = clipped(input.smtBars, asOf: input.asOf)
 
-        for required in [input.weeklyProfileTimeframe, input.weeklyControlTimeframe, input.liquidityTimeframe] {
-            guard timeframeBars[required] != nil else { throw LondresStrategyPipelineError.missingTimeframe(required) }
+        guard input.csdTimeframe == Self.executionTimeframe else {
+            throw LondresStrategyPipelineError.invalidExecutionTimeframe(input.csdTimeframe)
+        }
+        let executionHierarchy = try Self.executionHierarchy(from: input.hierarchy)
+        guard let fiveMinuteBars = timeframeBars[Self.executionTimeframe], !fiveMinuteBars.isEmpty else {
+            throw LondresStrategyPipelineError.missingTimeframe(Self.executionTimeframe)
+        }
+        guard !csdBars.isEmpty else { throw LondresStrategyPipelineError.noExecutionBars }
+        guard fiveMinuteBars.allSatisfy({ $0.timeframe == .fiveMinute })
+            && csdBars.allSatisfy({ $0.timeframe == .fiveMinute }) else {
+            throw LondresStrategyPipelineError.invalidExecutionCandleTimeframe
+        }
+        guard fiveMinuteBars.sorted(by: { $0.openTime < $1.openTime })
+            == csdBars.sorted(by: { $0.openTime < $1.openTime }) else {
+            throw LondresStrategyPipelineError.executionStreamMismatch
+        }
+        let narrativeTimeframeBars = timeframeBars.filter { executionHierarchy.contains($0.key) }
+
+        for required in [
+            input.weeklyProfileTimeframe,
+            input.weeklyControlTimeframe,
+            input.liquidityTimeframe,
+            Self.executionTimeframe
+        ] {
+            guard timeframeBars[required] != nil else {
+                throw LondresStrategyPipelineError.missingTimeframe(required)
+            }
         }
 
         var orderFlow: [String: OrderFlowResult] = [:]
@@ -195,7 +233,7 @@ struct LondresStrategyPipeline: Sendable {
 
         let csd = try CSDEngine().analyze(
             bars: csdBars,
-            timeframe: input.csdTimeframe,
+            timeframe: Self.executionTimeframe,
             asOf: input.asOf
         )
         let smtProbe = try SMTEngine().analyze(
@@ -224,23 +262,26 @@ struct LondresStrategyPipeline: Sendable {
         )
 
         let narrative = try NarrativeEngine().analyze(
-            timeframeBars: timeframeBars,
-            hierarchy: input.hierarchy,
+            timeframeBars: narrativeTimeframeBars,
+            hierarchy: executionHierarchy,
             asOf: input.asOf
         )
+        guard narrative.executionTimeframe == Self.executionTimeframe else {
+            throw LondresStrategyPipelineError.invalidExecutionHierarchy
+        }
         let narrativeGate = buildNarrativeGate(
             narrative: narrative,
             smt: smt,
-            csdTimeframe: input.csdTimeframe,
-            narrativeBars: timeframeBars[narrative.executionTimeframe] ?? [],
+            csdTimeframe: Self.executionTimeframe,
+            narrativeBars: fiveMinuteBars,
             executionBars: csdBars
         )
         let mmxmModels = try MMXMEngine().analyzeHierarchy(
-            timeframeBars: timeframeBars,
+            timeframeBars: narrativeTimeframeBars,
             narrative: narrative,
             asOf: input.asOf
         )
-        let executionMMXM = mmxmModels[narrative.executionTimeframe]
+        let executionMMXM = mmxmModels[Self.executionTimeframe]
         let executionDirection = directionalControl(smt.direction)
         let mmxmEntry = executionMMXM.map {
             MMXMEngine().entryContract(
@@ -251,7 +292,7 @@ struct LondresStrategyPipeline: Sendable {
             )
         }
 
-        let executionBars = timeframeBars[narrative.executionTimeframe] ?? []
+        let executionBars = fiveMinuteBars
         guard !executionBars.isEmpty else { throw LondresStrategyPipelineError.noExecutionBars }
         guard executionBars.allSatisfy({ $0.symbol == input.instrument.symbol }) else {
             throw LondresStrategyPipelineError.instrumentSymbolMismatch
@@ -261,7 +302,7 @@ struct LondresStrategyPipeline: Sendable {
         if let executionMMXM, let mmxmEntry {
             tradePlan = try TradePlanEngine().analyze(
                 bars: executionBars,
-                timeframe: narrative.executionTimeframe,
+                timeframe: Self.executionTimeframe,
                 narrative: narrative,
                 mmxm: executionMMXM,
                 entryContract: mmxmEntry,
@@ -271,9 +312,12 @@ struct LondresStrategyPipeline: Sendable {
             tradePlan = nil
         }
 
-        let localFlow = narrative.timeframes[narrative.executionTimeframe]?.orderFlow
+        let localFlow = narrative.timeframes[Self.executionTimeframe]?.orderFlow
         let stopOptions: StopSelectionContext?
-        if let validationCSD, let postCSDIOFC, let localFlow, let direction = marketDirection(executionDirection) {
+        if let validationCSD,
+           let postCSDIOFC,
+           let localFlow,
+           let direction = marketDirection(executionDirection) {
             stopOptions = StopSelectionEngine().analyze(
                 direction: direction,
                 currentPrice: executionBars[executionBars.count - 1].close,
@@ -332,8 +376,10 @@ struct LondresStrategyPipeline: Sendable {
         if mmxmEntry?.state != .reversalReady && mmxmEntry?.state != .continuationReady {
             blockers.append("WAIT_FOR_MMXM_ENTRY_STATE")
         }
-        if tradePlan?.state != .readyForEntrySelection { blockers.append("WAIT_FOR_STRUCTURAL_TRADE_PLAN") }
-        if entryExecution?.entryTriggered != true { blockers.append("WAIT_FOR_FIRST_IOF_RETURN") }
+        if tradePlan?.state != .readyForEntrySelection {
+            blockers.append("WAIT_FOR_STRUCTURAL_TRADE_PLAN")
+        }
+        if entryExecution?.entryTriggered != true { blockers.append("WAIT_FOR_FIRST_IOF_RETURN_M5") }
         if executableStop?.status != .ready { blockers.append("WAIT_FOR_EXECUTABLE_STOP") }
         if selectedTarget == nil { blockers.append("WAIT_FOR_SELECTED_CSD_TARGET") }
 
@@ -439,6 +485,7 @@ struct LondresStrategyPipeline: Sendable {
         let sameDirection = direction.rawValue == local.control.rawValue
             && local.control == narrative.bias
         let sameTimeframe = narrative.executionTimeframe == csdTimeframe
+            && narrative.executionTimeframe == Self.executionTimeframe
         let sameStream = sameTimeframe
             && narrativeBars.sorted(by: { $0.openTime < $1.openTime })
                 == executionBars.sorted(by: { $0.openTime < $1.openTime })
@@ -450,8 +497,11 @@ struct LondresStrategyPipeline: Sendable {
             && continuationDraw
         var reasons: [String] = []
         if !smt.validated { reasons.append("WAIT_FOR_SMT_CSD_POST_CSD_IOFC") }
-        if !narrative.contextConfirmed { reasons.append("WAIT_FOR_ALIGNED_NARRATIVE_AND_BOUNDED_DRAW") }
+        if !narrative.contextConfirmed {
+            reasons.append("WAIT_FOR_ALIGNED_NARRATIVE_AND_BOUNDED_DRAW")
+        }
         if !sameDirection { reasons.append("NARRATIVE_EXECUTION_DIRECTION_CONFLICT") }
+        if !sameTimeframe { reasons.append("EXECUTION_TIMEFRAME_MUST_BE_5M") }
         if !sameStream { reasons.append("NARRATIVE_EXECUTION_STREAM_MISMATCH") }
         if !continuationDraw { reasons.append("NO_CONTINUATION_LIQUIDITY_OBJECTIVE") }
         return LondresNarrativeGate(
@@ -483,6 +533,7 @@ struct LondresStrategyPipeline: Sendable {
         executableStop: ExecutableStopResult?,
         selectedTarget: SelectedTargetManagement?
     ) -> LondresSignal? {
+        guard narrative.executionTimeframe == Self.executionTimeframe else { return nil }
         let directionControl = mmxmEntry?.direction ?? directionalControl(smt.direction)
         guard let direction = marketDirection(directionControl) else { return nil }
         let higherControl = marketDirection(narrative.bias.directionalControl) ?? direction
@@ -502,15 +553,20 @@ struct LondresStrategyPipeline: Sendable {
             weeklyProfile: weekly.profile.rawValue,
             dailyProfile: "\(daily.dayType.rawValue)|\(daily.expectedDelivery.rawValue)|\(daily.phase.rawValue)",
             h4Profile: "\(h4.profile.rawValue)|\(h4.phase.rawValue)",
-            liquidityNarrative: liquidity.activeDraw.map { "\($0.side.rawValue)|\($0.liquidityClass.rawValue)|\($0.sourceKind)" } ?? "UNRESOLVED",
+            liquidityNarrative: liquidity.activeDraw.map {
+                "\($0.side.rawValue)|\($0.liquidityClass.rawValue)|\($0.sourceKind)|ENTRY_TF_5M"
+            } ?? "UNRESOLVED|ENTRY_TF_5M",
             timestamp: timePrice.asOf
         )
-        let iofRange = postCSDIOFC?.confirmationRange.map { PriceRange(low: $0.low, high: $0.high) }
+        let iofRange = postCSDIOFC?.confirmationRange.map {
+            PriceRange(low: $0.low, high: $0.high)
+        }
         let timePriceValid = timePrice.canonicalClock == "UTC-4_FIXED"
             && daily.status != .invalidated
             && h4.status != .invalidated
         let entryZoneValid = entryExecution?.entryTriggered == true
             && narrativeGate.qualified
+            && narrative.executionTimeframe == Self.executionTimeframe
             && (mmxmEntry?.state == .reversalReady || mmxmEntry?.state == .continuationReady)
             && tradePlan?.state == .readyForEntrySelection
         let evidence = LondresSetupEvidence(
