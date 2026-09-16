@@ -94,6 +94,7 @@ final class SubscriptionStore: ObservableObject {
             guard let subscription = product.subscription else { continue }
             guard let offer = subscription.introductoryOffer else { continue }
             guard offer.paymentMode == .freeTrial else { continue }
+            guard offer.period.unit == .month, offer.period.value == 1 else { continue }
 
             configured.insert(product.id)
             if await subscription.isEligibleForIntroOffer {
