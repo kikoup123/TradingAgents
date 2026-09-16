@@ -205,9 +205,13 @@ class AgentState(MessagesState):
         dict,
         "Phase 27 verified prop-firm identity, current official-domain rule research, source provenance/freshness, and conservative per-account policy adaptation that may tighten but never silently relax protections",
     ]
+    dynamic_prop_risk_state: Annotated[
+        dict,
+        "Phase 28 fresh verified per-account prop risk telemetry: provider-defined daily-loss usage and remaining drawdown buffer injected before Phase 27, with explicit freshness/provider/currency checks and no nominal-account-size or generic-PnL inference",
+    ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization -> broker connection/data freshness supervision -> mixed personal/prop per-account risk-base context -> NinjaTrader read-only account discovery and verified futures rollover context -> per-account NinjaTrader futures and prop-firm rule policy -> current official-source prop-firm rule research and conservative adaptation",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even -> pre-broker-validation -> read-only broker data -> universal broker registry -> multi-account preparation -> broker-native account-currency risk normalization -> broker connection/data freshness supervision -> mixed personal/prop per-account risk-base context -> NinjaTrader read-only account discovery and verified futures rollover context -> per-account NinjaTrader futures and prop-firm rule policy -> current official-source prop-firm rule research and conservative adaptation -> fresh verified dynamic prop-risk telemetry",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
