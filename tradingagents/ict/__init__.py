@@ -52,6 +52,13 @@ from .phase7 import LondresPhase7Engine
 from .phase8 import LondresPhase8Engine
 from .phase9 import LondresPhase9Engine
 from .phase10 import LondresPhase10Engine
+from .risk_sizing import (
+    AccountRiskPolicy,
+    InstrumentRiskSpec,
+    RiskSizingEngine,
+    RiskSizingResult,
+    RiskSizingStatus,
+)
 from .smt import (
     DEFAULT_SMT_GROUPS,
     SMTEngine,
@@ -100,6 +107,11 @@ __all__ = [
     "StopSelectionContext",
     "StopSelectionEngine",
     "StopSource",
+    "AccountRiskPolicy",
+    "InstrumentRiskSpec",
+    "RiskSizingEngine",
+    "RiskSizingResult",
+    "RiskSizingStatus",
     "LondresPhase7Engine",
     "LondresPhase8Engine",
     "LondresPhase9Engine",
