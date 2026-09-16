@@ -77,7 +77,7 @@ class Phase30AccountAuthorization:
         payload["venue"] = self.venue.value
         payload["broker_type"] = self.broker_type.value
         payload["status"] = self.status.value
-        payload["account_scope"] = "LIVE_BROKERAGE_ACCOUNTS_ONLY"
+        payload["account_scope"] = "BROKERAGE_ACCOUNTS"
         payload["account_environment"] = "HIDDEN_INTERNAL"
         payload["execution_enabled"] = False
         payload["order_submission_enabled"] = False
@@ -121,7 +121,7 @@ class Phase30AuthorizationBatch:
             "authorization_authority": "LONDRES_PHASE30_UNIVERSAL_ACCOUNT_HANDOFF_GATE",
             "position_source": "ACCOUNT_SPECIFIC_CURRENT_EQUITY_RISK_PLAN",
             "supported_venues": [venue.value for venue in Phase30BrokerVenue],
-            "account_scope": "LIVE_BROKERAGE_ACCOUNTS_ONLY",
+            "account_scope": "BROKERAGE_ACCOUNTS",
             "account_environment": "HIDDEN_INTERNAL",
             "execution_enabled": False,
             "order_submission_enabled": False,
