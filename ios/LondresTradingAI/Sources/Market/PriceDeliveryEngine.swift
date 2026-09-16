@@ -145,9 +145,9 @@ struct PriceDeliveryEngine: Sendable {
                 let window = Array(data[(i + 1 - consolidationWindow)...i])
                 let overlapLow = window.map(\.low).max() ?? row.low
                 let overlapHigh = window.map(\.high).min() ?? row.high
-                let hasUp = window.contains { $0.close > $0.open }
-                let hasDown = window.contains { $0.close < $0.open }
-                if overlapLow < overlapHigh && hasUp && hasDown {
+                if overlapLow < overlapHigh,
+                   window.contains(where: { $0.close > $0.open }),
+                   window.contains(where: { $0.close < $0.open }) {
                     let candidate = OriginalConsolidation(
                         low: window.map(\.low).min() ?? row.low,
                         high: window.map(\.high).max() ?? row.high,
@@ -195,8 +195,7 @@ struct PriceDeliveryEngine: Sendable {
                     raids.removeAll()
                     cycle = .unresolved
                 } else if let reference = newlyTaken.max(by: { $0.sourcePosition < $1.sourcePosition }) {
-                    let raid = DeliveryRaid(position: i, reference: reference)
-                    raids.append(raid)
+                    raids.append(DeliveryRaid(position: i, reference: reference))
                     cycle = .stopsToImbalance
                     if distribution == nil { sequence = .neutralize }
                     record(i, .neutralize, reference: reference)
@@ -238,11 +237,7 @@ struct PriceDeliveryEngine: Sendable {
                 if broken {
                     phase = .transition
                     sequence = .invalidated
-                    record(
-                        i,
-                        .deliveryArrayNegated,
-                        gapFormationPosition: activeDistribution.formationPosition
-                    )
+                    record(i, .deliveryArrayNegated, gapFormationPosition: activeDistribution.formationPosition)
                     distribution = nil
                     rebalancedAt = nil
                     raids.removeAll()
@@ -259,8 +254,8 @@ struct PriceDeliveryEngine: Sendable {
                     record(i, .rebalance, gapFormationPosition: activeDistribution.formationPosition)
                 }
 
-                if let rebalancedAt,
-                   i > rebalancedAt,
+                if let rebalancePosition = rebalancedAt,
+                   i > rebalancePosition,
                    sequence == .rebalance {
                     let continued = bullish
                         ? row.close > activeDistribution.sourceHigh
@@ -274,7 +269,8 @@ struct PriceDeliveryEngine: Sendable {
                             gapFormationPosition: activeDistribution.formationPosition
                         )
                         distribution = nil
-                        selfReset(&rebalancedAt, &raids)
+                        rebalancedAt = nil
+                        raids.removeAll()
                     }
                 }
             }
@@ -296,11 +292,6 @@ struct PriceDeliveryEngine: Sendable {
                 "NO_REVERSAL_FROM_ARRAY_TOUCH_ALONE"
             ]
         )
-    }
-
-    private func selfReset(_ rebalancedAt: inout Int?, _ raids: inout [DeliveryRaid]) {
-        rebalancedAt = nil
-        raids.removeAll()
     }
 
     private func expectedNext(_ sequence: DeliverySequence) -> DeliverySequence? {
