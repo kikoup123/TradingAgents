@@ -62,6 +62,15 @@ from .ninjatrader_futures import (
     ParsedNinjaTraderContract,
     parse_ninjatrader_contract_symbol,
 )
+from .prop_risk_telemetry import (
+    JsonPropRiskTelemetrySource,
+    PropRiskTelemetryPolicy,
+    PropRiskTelemetrySnapshot,
+    PropRiskTelemetrySource,
+    PropRiskTelemetryStatus,
+    PropRiskTelemetryValidationResult,
+    PropRiskTelemetryValidator,
+)
 from .prop_rule_research import (
     DEFAULT_PROP_FIRM_PROVIDER_RECORDS,
     JsonLLMPropFirmRuleExtractor,
@@ -134,6 +143,7 @@ __all__ = [
     "FuturesContractResolution",
     "FuturesContractResolutionStatus",
     "JsonLLMPropFirmRuleExtractor",
+    "JsonPropRiskTelemetrySource",
     "NINJATRADER_EQUITY_INDEX_FUTURES",
     "NinjaTraderBridgeError",
     "NinjaTraderDiscoveredAccount",
@@ -155,6 +165,12 @@ __all__ = [
     "PropFirmRuleSearchClient",
     "PropFirmRuleSnapshot",
     "PropFirmSearchHit",
+    "PropRiskTelemetryPolicy",
+    "PropRiskTelemetrySnapshot",
+    "PropRiskTelemetrySource",
+    "PropRiskTelemetryStatus",
+    "PropRiskTelemetryValidationResult",
+    "PropRiskTelemetryValidator",
     "RiskBaseAccountAdapter",
     "SymbolMappingError",
     "TavilyPropFirmRuleSearchClient",
