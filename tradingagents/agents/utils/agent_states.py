@@ -145,13 +145,17 @@ class AgentState(MessagesState):
         dict,
         "Phase 15 complete trade calculation: entry, executable stop, risk-sized volume, selected CSD target, R:R, and exact 60/40 hold split when broker-executable",
     ]
+    break_even_management_state: Annotated[
+        dict,
+        "Phase 16 structural break-even: IOF-range exit -> new confirmed fractal -> BOS -> current stop moved to exact entry with costs accounted separately",
+    ]
     execution_package_state: Annotated[
         dict,
-        "Exact entry, executable stop, deterministic risk sizing, selected CSD target geometry, and pre-order calculation state",
+        "Exact entry, executable stop, deterministic risk sizing, selected CSD target geometry, structural break-even state, and pre-order calculation state",
     ]
     londres_context_state: Annotated[
         dict,
-        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation context",
+        "Combined Weekly -> Daily -> H4 -> Time & Price -> Liquidity -> SMT -> CSD -> IOFC -> MMXM -> trade-plan -> target-management -> exact-entry -> executable-stop -> trade-calculation -> structural-break-even context",
     ]
 
     sender: Annotated[str, "Agent that sent this message"]
