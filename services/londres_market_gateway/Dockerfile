@@ -9,6 +9,7 @@ COPY services/londres_market_gateway/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY services /app/services
+COPY tradingagents /app/tradingagents
 
 EXPOSE 8080
 
