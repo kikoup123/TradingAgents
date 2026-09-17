@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 
 from .ctrader_mobile import router as ctrader_router
+from .ctrader_mock import router as ctrader_mock_router
 from .models import SUPPORTED_TIMEFRAMES, UTC, Bar, Quote
 from .rolling_databento_feed import RollingDatabentoMarketFeed
 
@@ -25,12 +26,13 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Londres Market Data Gateway",
-    version="0.2.0",
+    version="0.3.0",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
 )
 app.include_router(ctrader_router)
+app.include_router(ctrader_mock_router)
 
 
 def _authorize(authorization: Annotated[str | None, Header()] = None) -> None:
