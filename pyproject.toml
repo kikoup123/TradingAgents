@@ -35,12 +35,16 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "cryptography>=43,<47",
+    "fastapi>=0.115,<1",
     "ruff>=0.15",
     "pytest>=8.0",
     "pytest-subtests>=0.13",
 ]
-# Amazon Bedrock support (AWS SigV4 auth + boto3). Optional so the core install
-# stays lean: pip install "tradingagents[bedrock]".
+# Amazon Bedrock support (provider "bedrock", install with: pip install ".[bedrock]").
+# Auth: either a Bedrock API key (bearer token, no AWS access keys) OR the AWS
+# credential chain (env keys / ~/.aws/credentials / IAM role / AWS_PROFILE). Set
+# the region either way; a bearer token takes precedence when both are present.
 bedrock = [
     "langchain-aws>=1.5.0",
 ]
@@ -85,6 +89,9 @@ ignore = ["E501"]
 # retains socket.timeout explicitly for Python 3.10-era compatibility. The
 # production facade in brokers/ctrader.py uses builtin TimeoutError.
 "tradingagents/brokers/ctrader_readonly.py" = ["UP041"]
+# The mobile gateway keeps explicit UTF-8 encoding at its HMAC boundary so the
+# byte contract remains unambiguous when the session format is reviewed across runtimes.
+"services/londres_market_gateway/ctrader_mobile.py" = ["UP012"]
 
 [tool.ruff.lint.isort]
 # Keep multiple aliased names from one module in a single combined import block
