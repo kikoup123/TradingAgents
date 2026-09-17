@@ -4,7 +4,18 @@ on:
   pull_request:
     paths:
       - "services/londres_market_gateway/**"
+      - "tradingagents/brokers/ctrader_readonly.py"
       - "tests/test_londres_market_gateway.py"
+      - "tests/test_ctrader_mobile_gateway.py"
+      - ".github/workflows/londres-market-gateway.yml"
+  push:
+    branches:
+      - "londres/ios-signal-journal-v1"
+    paths:
+      - "services/londres_market_gateway/**"
+      - "tradingagents/brokers/ctrader_readonly.py"
+      - "tests/test_londres_market_gateway.py"
+      - "tests/test_ctrader_mobile_gateway.py"
       - ".github/workflows/londres-market-gateway.yml"
 
 concurrency:
@@ -25,8 +36,15 @@ jobs:
           pip install -r services/londres_market_gateway/requirements.txt
           pip install "pytest>=8" "ruff>=0.15"
       - name: Lint gateway
-        run: ruff check services/londres_market_gateway tests/test_londres_market_gateway.py
+        run: >-
+          ruff check
+          services/londres_market_gateway
+          tests/test_londres_market_gateway.py
+          tests/test_ctrader_mobile_gateway.py
       - name: Import gateway without starting vendor session
         run: python -c "from services.londres_market_gateway.app import app; print(app.title)"
       - name: Run deterministic gateway tests
-        run: pytest -q tests/test_londres_market_gateway.py
+        run: >-
+          pytest -q
+          tests/test_londres_market_gateway.py
+          tests/test_ctrader_mobile_gateway.py
