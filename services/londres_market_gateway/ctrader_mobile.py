@@ -7,9 +7,12 @@ import json
 import os
 import re
 import secrets
+import sys
 import threading
 import time
 from dataclasses import dataclass
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
 
@@ -18,16 +21,50 @@ from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Response, s
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from tradingagents.brokers.ctrader_readonly import (
-    CTraderConnectionError,
-    CTraderEnvironment,
-    CTraderJsonReadOnlyTransport,
-    CTraderOAuthClient,
-    CTraderReadOnlyConnector,
-    CTraderReadOnlyError,
-    CTraderSecretConfig,
-    CTraderTokenSet,
-)
+
+def _load_standalone_ctrader_readonly() -> Any:
+    """Load the hardened connector without executing tradingagents.brokers.__init__.
+
+    The broker package currently re-exports execution and risk modules eagerly,
+    which creates a circular import when a lightweight gateway process imports
+    only the read-only cTrader transport. The connector itself is standalone and
+    depends only on the standard library plus requests, so loading that source
+    file directly keeps this service isolated from execution code.
+    """
+
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "tradingagents"
+        / "brokers"
+        / "ctrader_readonly.py"
+    )
+    module_name = "_londres_ctrader_readonly_standalone"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        return existing
+
+    spec = spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load the read-only cTrader connector")
+    module = module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
+    return module
+
+
+_ctrader = _load_standalone_ctrader_readonly()
+CTraderConnectionError = _ctrader.CTraderConnectionError
+CTraderEnvironment = _ctrader.CTraderEnvironment
+CTraderJsonReadOnlyTransport = _ctrader.CTraderJsonReadOnlyTransport
+CTraderOAuthClient = _ctrader.CTraderOAuthClient
+CTraderReadOnlyConnector = _ctrader.CTraderReadOnlyConnector
+CTraderReadOnlyError = _ctrader.CTraderReadOnlyError
+CTraderSecretConfig = _ctrader.CTraderSecretConfig
+CTraderTokenSet = _ctrader.CTraderTokenSet
 
 router = APIRouter(prefix="/v1/brokers/ctrader", tags=["cTrader"])
 
@@ -64,7 +101,10 @@ class CTraderMobileConfiguration:
             )
 
         redirect = urlparse(values["CTRADER_REDIRECT_URI"])
-        is_local_http = redirect.scheme == "http" and redirect.hostname in {"127.0.0.1", "localhost"}
+        is_local_http = redirect.scheme == "http" and redirect.hostname in {
+            "127.0.0.1",
+            "localhost",
+        }
         if redirect.scheme != "https" and not is_local_http:
             raise CTraderMobileConfigurationError(
                 "CTRADER_REDIRECT_URI must use HTTPS outside localhost development"
@@ -94,7 +134,7 @@ class CTraderAuthorizedAccount:
     account_id: int
     trader_login: str
     broker: str | None
-    environment: CTraderEnvironment
+    environment: Any
 
 
 @dataclass(frozen=True)
@@ -108,16 +148,14 @@ class CTraderBrokerSession:
 
 
 class CTraderBrokerSessionCodec:
-    """Encrypts broker credentials into an opaque token safe to persist in iOS Keychain.
-
-    The iOS app can hold this value but cannot recover cTrader access/refresh tokens,
-    account IDs or demo/live routing metadata from it. Only the gateway can decrypt it.
-    """
+    """Encrypt broker credentials into an opaque value persisted by iOS Keychain."""
 
     def __init__(self, secret: str) -> None:
         key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
         self._fernet = Fernet(key)
-        self._account_key_secret = hashlib.sha256(("account-key:" + secret).encode("utf-8")).digest()
+        self._account_key_secret = hashlib.sha256(
+            ("account-key:" + secret).encode("utf-8")
+        ).digest()
 
     def seal_flow(self) -> str:
         payload = {"v": 1, "iat": int(time.time()), "nonce": secrets.token_urlsafe(24)}
@@ -181,9 +219,13 @@ class CTraderBrokerSessionCodec:
                 )
             return CTraderBrokerSession(
                 access_token=str(payload["accessToken"]),
-                refresh_token=(str(payload["refreshToken"]) if payload.get("refreshToken") else None),
+                refresh_token=(
+                    str(payload["refreshToken"]) if payload.get("refreshToken") else None
+                ),
                 token_type=str(payload.get("tokenType") or "bearer"),
-                expires_in=(int(payload["expiresIn"]) if payload.get("expiresIn") is not None else None),
+                expires_in=(
+                    int(payload["expiresIn"]) if payload.get("expiresIn") is not None else None
+                ),
                 issued_at=int(payload["iat"]),
                 accounts=tuple(accounts),
             )
@@ -191,7 +233,7 @@ class CTraderBrokerSessionCodec:
             raise CTraderReadOnlyError("Broker session payload is malformed") from exc
 
     def account_key(self, account: CTraderAuthorizedAccount) -> str:
-        message = f"{account.environment.value}:{account.account_id}".encode("utf-8")
+        message = f"{account.environment.value}:{account.account_id}".encode()
         digest = hmac.new(self._account_key_secret, message, hashlib.sha256).digest()[:18]
         return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
@@ -260,7 +302,7 @@ def _discover_authorized_accounts(
     config: CTraderMobileConfiguration,
     access_token: str,
 ) -> tuple[CTraderAuthorizedAccount, ...]:
-    discovered: dict[tuple[CTraderEnvironment, int], CTraderAuthorizedAccount] = {}
+    discovered: dict[tuple[Any, int], CTraderAuthorizedAccount] = {}
     failures: list[Exception] = []
 
     for environment in (CTraderEnvironment.DEMO, CTraderEnvironment.LIVE):
@@ -304,13 +346,15 @@ def _discover_authorized_accounts(
 
     if not discovered:
         if failures:
-            raise CTraderConnectionError("Unable to discover authorized cTrader accounts") from failures[0]
+            raise CTraderConnectionError(
+                "Unable to discover authorized cTrader accounts"
+            ) from failures[0]
         raise CTraderReadOnlyError("No cTrader accounts were authorized for this application")
     return tuple(discovered.values())
 
 
 def _create_session(
-    tokens: CTraderTokenSet,
+    tokens: Any,
     accounts: tuple[CTraderAuthorizedAccount, ...],
 ) -> CTraderBrokerSession:
     return CTraderBrokerSession(
@@ -378,7 +422,7 @@ def _mask_account(value: Any) -> str:
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
-    return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
 
 
 @router.get("/availability")
