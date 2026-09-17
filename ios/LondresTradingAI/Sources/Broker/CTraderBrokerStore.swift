@@ -24,10 +24,7 @@ struct BrokerGatewayConfiguration: Hashable, Sendable {
         let callback = environment["LONDRES_CTRADER_CALLBACK_SCHEME"]
             ?? Bundle.main.object(forInfoDictionaryKey: "LONDRES_CTRADER_CALLBACK_SCHEME") as? String
             ?? "londrestradingai"
-        return BrokerGatewayConfiguration(
-            baseURL: url,
-            callbackScheme: callback.lowercased()
-        )
+        return BrokerGatewayConfiguration(baseURL: url, callbackScheme: callback.lowercased())
     }
 }
 
@@ -79,11 +76,16 @@ enum CTraderBrokerConnectionState: String, Sendable {
 
     var displayName: String {
         switch self {
-        case .unavailable: "Not configured"
-        case .disconnected: "Not connected"
-        case .connecting: "Connecting…"
-        case .connected: "Connected · Read Only"
-        case .failed: "Connection error"
+        case .unavailable:
+            return "Not configured"
+        case .disconnected:
+            return "Not connected"
+        case .connecting:
+            return "Connecting…"
+        case .connected:
+            return "Connected · Read Only"
+        case .failed:
+            return "Connection error"
         }
     }
 }
@@ -111,9 +113,7 @@ final class CTraderBrokerStore: ObservableObject {
     var isConfigured: Bool { configuration != nil }
 
     func authorizationStartURL() -> URL? {
-        guard let configuration else { return nil }
-        return configuration.baseURL
-            .appendingPathComponent("v1/brokers/ctrader/start")
+        configuration?.baseURL.appendingPathComponent("v1/brokers/ctrader/start")
     }
 
     func handleCallback(_ url: URL) async {
@@ -125,11 +125,12 @@ final class CTraderBrokerStore: ObservableObject {
             return
         }
 
-        let values = Dictionary(
-            uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
-                item.value.map { (item.name, $0) }
+        var values: [String: String] = [:]
+        for item in components.queryItems ?? [] {
+            if let value = item.value {
+                values[item.name] = value
             }
-        )
+        }
         if values["error"] != nil {
             state = .failed
             errorMessage = "cTrader authorization was not completed."
@@ -144,10 +145,11 @@ final class CTraderBrokerStore: ObservableObject {
         state = .connecting
         errorMessage = nil
         do {
+            let body = try JSONEncoder().encode(CompleteOAuthRequest(code: handoffCode))
             let response: CompleteOAuthResponse = try await request(
                 path: "v1/brokers/ctrader/complete",
                 method: "POST",
-                body: CompleteOAuthRequest(code: handoffCode),
+                body: body,
                 brokerSession: nil
             )
             try keychain.save(response.brokerSessionToken)
@@ -164,7 +166,7 @@ final class CTraderBrokerStore: ObservableObject {
             state = .unavailable
             return
         }
-        guard let token = try? keychain.load(), let token, !token.isEmpty else {
+        guard let token = storedSessionToken(), !token.isEmpty else {
             state = .disconnected
             accounts = []
             selectedAccountSnapshot = nil
@@ -175,7 +177,6 @@ final class CTraderBrokerStore: ObservableObject {
             let response: BrokerStatusResponse = try await request(
                 path: "v1/brokers/ctrader/status",
                 method: "GET",
-                body: Optional<EmptyBody>.none,
                 brokerSession: token
             )
             accounts = response.accounts
@@ -196,7 +197,7 @@ final class CTraderBrokerStore: ObservableObject {
     }
 
     func refreshCredentials() async {
-        guard let token = try? keychain.load(), let token, !token.isEmpty else {
+        guard let token = storedSessionToken(), !token.isEmpty else {
             state = .disconnected
             return
         }
@@ -204,7 +205,6 @@ final class CTraderBrokerStore: ObservableObject {
             let response: RefreshBrokerSessionResponse = try await request(
                 path: "v1/brokers/ctrader/refresh",
                 method: "POST",
-                body: Optional<EmptyBody>.none,
                 brokerSession: token
             )
             try keychain.save(response.brokerSessionToken)
@@ -218,7 +218,7 @@ final class CTraderBrokerStore: ObservableObject {
     }
 
     func loadAccount(_ account: CTraderBrokerAccount) async {
-        guard let token = try? keychain.load(), let token, !token.isEmpty else {
+        guard let token = storedSessionToken(), !token.isEmpty else {
             state = .disconnected
             return
         }
@@ -227,7 +227,6 @@ final class CTraderBrokerStore: ObservableObject {
                 path: "v1/brokers/ctrader/account",
                 method: "GET",
                 queryItems: [URLQueryItem(name: "account_key", value: account.accountKey)],
-                body: Optional<EmptyBody>.none,
                 brokerSession: token
             )
             selectedAccountSnapshot = response.snapshot
@@ -245,11 +244,19 @@ final class CTraderBrokerStore: ObservableObject {
         state = configuration == nil ? .unavailable : .disconnected
     }
 
-    private func request<Response: Decodable, Body: Encodable>(
+    private func storedSessionToken() -> String? {
+        do {
+            return try keychain.load()
+        } catch {
+            return nil
+        }
+    }
+
+    private func request<Response: Decodable>(
         path: String,
         method: String,
         queryItems: [URLQueryItem] = [],
-        body: Body?,
+        body: Data? = nil,
         brokerSession: String?
     ) async throws -> Response {
         guard let configuration else { throw BrokerGatewayError.notConfigured }
@@ -270,7 +277,7 @@ final class CTraderBrokerStore: ObservableObject {
             request.setValue(brokerSession, forHTTPHeaderField: "X-Londres-Broker-Session")
         }
         if let body {
-            request.httpBody = try JSONEncoder().encode(body)
+            request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
@@ -319,8 +326,6 @@ private struct AccountSnapshotResponse: Decodable {
     let snapshot: CTraderAccountSnapshot
 }
 
-private struct EmptyBody: Codable {}
-
 private enum BrokerGatewayError: Error, Equatable {
     case notConfigured
     case invalidEndpoint
@@ -349,7 +354,9 @@ private struct BrokerSessionKeychain {
             throw KeychainError.status(updateStatus)
         }
         var insert = query
-        attributes.forEach { insert[$0.key] = $0.value }
+        for (key, value) in attributes {
+            insert[key] = value
+        }
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw KeychainError.status(addStatus)
