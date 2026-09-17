@@ -1,0 +1,529 @@
+//@version=6
+indicator("LONDRES AI TRADING AGENT — V1", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200)
+
+// ============================================================================
+// LONDRES AI TRADING AGENT — V1
+// TradingView visual/deterministic layer for the Londres backend agent.
+//
+// V1 parity targets:
+//   1) HTF institutional order-flow context
+//   2) Structural liquidity references
+//   3) Structural SMT divergence
+//   4) CSD / CISD delivery shift
+//   5) Post-CSD IOFC
+//
+// IMPORTANT:
+// - This is an indicator, not an autonomous execution system.
+// - The Python backend remains the canonical agent.
+// - SMT never creates an entry by itself.
+// - Wicks do not confirm CSD or IOFC; body closes do.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// INPUTS
+// ----------------------------------------------------------------------------
+groupCore = "01 — CORE"
+pivotSpan      = input.int(2, "Structural pivot span", minval = 1, maxval = 10, group = groupCore)
+maxCandidates  = input.int(200, "IOF candidate retention", minval = 20, maxval = 500, group = groupCore)
+showDashboard  = input.bool(true, "Show AI state dashboard", group = groupCore)
+showLiquidity  = input.bool(true, "Show latest structural BSL / SSL", group = groupCore)
+showIofLevels  = input.bool(true, "Show latest chart IOF range", group = groupCore)
+showCsdLevels  = input.bool(true, "Show latest CSD threshold / protected extreme", group = groupCore)
+
+groupSMT = "02 — SMT"
+enableSMT   = input.bool(true, "Enable SMT", group = groupSMT)
+smtTf       = input.timeframe("5", "SMT timeframe", group = groupSMT)
+smtLeg1     = input.symbol("CME_MINI:NQ1!", "SMT leg 1", group = groupSMT)
+smtLeg2     = input.symbol("CME_MINI:ES1!", "SMT leg 2", group = groupSMT)
+smtLeg3     = input.symbol("CBOT_MINI:YM1!", "SMT leg 3", group = groupSMT)
+leg1Inverse = input.bool(false, "Leg 1 inverse polarity", group = groupSMT)
+leg2Inverse = input.bool(false, "Leg 2 inverse polarity", group = groupSMT)
+leg3Inverse = input.bool(false, "Leg 3 inverse polarity", group = groupSMT)
+
+groupAlerts = "03 — ALERTS"
+enableJsonAlerts = input.bool(true, "Send JSON state alerts with alert()", group = groupAlerts)
+
+// ----------------------------------------------------------------------------
+// HELPERS
+// ----------------------------------------------------------------------------
+f_dir_text(int d) =>
+    d == 1 ? "BULLISH" :
+     d == -1 ? "BEARISH" :
+     d == 2 ? "TRANSITION" :
+     "UNCONFIRMED"
+
+f_dir_color(int d) =>
+    d == 1 ? color.new(color.lime, 0) :
+     d == -1 ? color.new(color.red, 0) :
+     d == 2 ? color.new(color.orange, 0) :
+     color.new(color.gray, 0)
+
+f_bool_text(bool v) =>
+    v ? "YES" : "NO"
+
+// ----------------------------------------------------------------------------
+// MODULE 1 — INSTITUTIONAL ORDER FLOW / IOFC
+//
+// Mirrors tradingagents/ict/order_flow.py:
+//   Bullish IOF = down-close source range + later BODY close above source high.
+//   Bearish IOF = up-close source range + later BODY close below source low.
+//   Wick-only breaks do not confirm.
+//   Latest confirmed range controls until invalidated by an opposing body close.
+// ----------------------------------------------------------------------------
+f_iof_engine(int retain) =>
+    var array<float> bullHi = array.new_float()
+    var array<float> bullLo = array.new_float()
+    var array<int> bullSrc = array.new_int()
+
+    var array<float> bearHi = array.new_float()
+    var array<float> bearLo = array.new_float()
+    var array<int> bearSrc = array.new_int()
+
+    var int control = 0
+    var int latestDir = 0
+    var float latestHi = na
+    var float latestLo = na
+    var int latestSourceBar = na
+
+    if latestDir == 1 and control == 1 and not na(latestLo) and close < latestLo
+        control := 2
+    if latestDir == -1 and control == -1 and not na(latestHi) and close > latestHi
+        control := 2
+
+    int eventDir = 0
+    int eventSource = -1
+    float eventHi = na
+    float eventLo = na
+
+    if array.size(bullHi) > 0
+        for i = array.size(bullHi) - 1 to 0
+            float candidateHi = array.get(bullHi, i)
+            float candidateLo = array.get(bullLo, i)
+            int candidateSrc = array.get(bullSrc, i)
+            if close > candidateHi
+                if candidateSrc > eventSource
+                    eventDir := 1
+                    eventSource := candidateSrc
+                    eventHi := candidateHi
+                    eventLo := candidateLo
+                array.remove(bullHi, i)
+                array.remove(bullLo, i)
+                array.remove(bullSrc, i)
+
+    if array.size(bearHi) > 0
+        for i = array.size(bearHi) - 1 to 0
+            float candidateHi = array.get(bearHi, i)
+            float candidateLo = array.get(bearLo, i)
+            int candidateSrc = array.get(bearSrc, i)
+            if close < candidateLo
+                if candidateSrc > eventSource
+                    eventDir := -1
+                    eventSource := candidateSrc
+                    eventHi := candidateHi
+                    eventLo := candidateLo
+                array.remove(bearHi, i)
+                array.remove(bearLo, i)
+                array.remove(bearSrc, i)
+
+    if eventDir != 0
+        latestDir := eventDir
+        latestHi := eventHi
+        latestLo := eventLo
+        latestSourceBar := eventSource
+        control := eventDir
+
+    if close < open
+        array.push(bullHi, high)
+        array.push(bullLo, low)
+        array.push(bullSrc, bar_index)
+    else if close > open
+        array.push(bearHi, high)
+        array.push(bearLo, low)
+        array.push(bearSrc, bar_index)
+
+    while array.size(bullHi) > retain
+        array.shift(bullHi)
+        array.shift(bullLo)
+        array.shift(bullSrc)
+
+    while array.size(bearHi) > retain
+        array.shift(bearHi)
+        array.shift(bearLo)
+        array.shift(bearSrc)
+
+    [control, latestDir, latestHi, latestLo, eventDir, latestSourceBar]
+
+[chartIofControl, chartLatestIofDir, chartLatestIofHi, chartLatestIofLo, chartIofEvent, chartLatestIofSource] = f_iof_engine(maxCandidates)
+
+[wIof, wLatestDir, wIofHi, wIofLo, wEvent, wSource] = request.security(syminfo.tickerid, "W", f_iof_engine(maxCandidates), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[dIof, dLatestDir, dIofHi, dIofLo, dEvent, dSource] = request.security(syminfo.tickerid, "D", f_iof_engine(maxCandidates), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h4Iof, h4LatestDir, h4IofHi, h4IofLo, h4Event, h4Source] = request.security(syminfo.tickerid, "240", f_iof_engine(maxCandidates), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h1Iof, h1LatestDir, h1IofHi, h1IofLo, h1Event, h1Source] = request.security(syminfo.tickerid, "60", f_iof_engine(maxCandidates), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+int htfNarrative = 0
+string htfNarrativeText = "MIXED / UNRESOLVED"
+
+if wIof == dIof and dIof == h4Iof and wIof != 0 and wIof != 2
+    htfNarrative := wIof
+    htfNarrativeText := "W + D + H4 ALIGNED"
+else if dIof == h4Iof and h4Iof == h1Iof and dIof != 0 and dIof != 2
+    htfNarrative := dIof
+    htfNarrativeText := "D + H4 + H1 ALIGNED"
+
+// ----------------------------------------------------------------------------
+// MODULE 2 — STRUCTURAL LIQUIDITY
+// ----------------------------------------------------------------------------
+float ph = ta.pivothigh(high, pivotSpan, pivotSpan)
+float pl = ta.pivotlow(low, pivotSpan, pivotSpan)
+
+var float lastBSL = na
+var float lastSSL = na
+var int bslStatus = 0
+var int sslStatus = 0
+var int bslSourceBar = na
+var int sslSourceBar = na
+
+if not na(ph)
+    lastBSL := ph
+    bslStatus := 0
+    bslSourceBar := bar_index - pivotSpan
+
+if not na(pl)
+    lastSSL := pl
+    sslStatus := 0
+    sslSourceBar := bar_index - pivotSpan
+
+bool bslRaidNow = false
+bool sslRaidNow = false
+bool bslConsumedNow = false
+bool sslConsumedNow = false
+
+if not na(lastBSL) and bslStatus == 0 and bar_index > bslSourceBar and high > lastBSL
+    if close < lastBSL
+        bslStatus := 1
+        bslRaidNow := true
+    else
+        bslStatus := 2
+        bslConsumedNow := true
+
+if not na(lastSSL) and sslStatus == 0 and bar_index > sslSourceBar and low < lastSSL
+    if close > lastSSL
+        sslStatus := 1
+        sslRaidNow := true
+    else
+        sslStatus := 2
+        sslConsumedNow := true
+
+plot(showLiquidity ? lastBSL : na, "Latest structural BSL", color = bslStatus == 0 ? color.new(color.red, 35) : color.new(color.red, 70), style = plot.style_stepline, linewidth = 1)
+plot(showLiquidity ? lastSSL : na, "Latest structural SSL", color = sslStatus == 0 ? color.new(color.lime, 35) : color.new(color.lime, 70), style = plot.style_stepline, linewidth = 1)
+
+plotshape(showLiquidity and bslRaidNow, title = "BSL raid + reclaim", text = "BSL RAID", style = shape.labeldown, location = location.abovebar, size = size.tiny, color = color.new(color.red, 0), textcolor = color.white)
+plotshape(showLiquidity and sslRaidNow, title = "SSL raid + reclaim", text = "SSL RAID", style = shape.labelup, location = location.belowbar, size = size.tiny, color = color.new(color.lime, 0), textcolor = color.black)
+
+// ----------------------------------------------------------------------------
+// MODULE 3 — CSD / CISD
+// ----------------------------------------------------------------------------
+f_csd_engine(int span) =>
+    var float highRef = na
+    var float lowRef = na
+    var int highSourceBar = na
+    var int lowSourceBar = na
+    var int highConfirmBar = na
+    var int lowConfirmBar = na
+    var bool highTaken = false
+    var bool lowTaken = false
+
+    var float bullLegMaxDownOpen = na
+    var float bearLegMinUpOpen = na
+    var float downOpenSinceLowConfirm = na
+    var float upOpenSinceHighConfirm = na
+
+    var bool pendingBull = false
+    var bool pendingBear = false
+    var float bullThreshold = na
+    var float bearThreshold = na
+    var float bullProtected = na
+    var float bearProtected = na
+
+    var int latestDir = 0
+    var float latestThreshold = na
+    var float latestProtected = na
+    var int latestConfirmBar = na
+    var int latestConfirmTime = na
+
+    int pulse = 0
+
+    float localPh = ta.pivothigh(high, span, span)
+    float localPl = ta.pivotlow(low, span, span)
+
+    if not na(localPh)
+        highRef := localPh
+        highSourceBar := bar_index - span
+        highConfirmBar := bar_index
+        highTaken := false
+        bullLegMaxDownOpen := na
+        upOpenSinceHighConfirm := na
+        for j = 0 to span
+            if close[j] < open[j]
+                bullLegMaxDownOpen := na(bullLegMaxDownOpen) ? open[j] : math.max(bullLegMaxDownOpen, open[j])
+            if close[j] > open[j]
+                upOpenSinceHighConfirm := na(upOpenSinceHighConfirm) ? open[j] : math.min(upOpenSinceHighConfirm, open[j])
+
+    if not na(localPl)
+        lowRef := localPl
+        lowSourceBar := bar_index - span
+        lowConfirmBar := bar_index
+        lowTaken := false
+        bearLegMinUpOpen := na
+        downOpenSinceLowConfirm := na
+        for j = 0 to span
+            if close[j] > open[j]
+                bearLegMinUpOpen := na(bearLegMinUpOpen) ? open[j] : math.min(bearLegMinUpOpen, open[j])
+            if close[j] < open[j]
+                downOpenSinceLowConfirm := na(downOpenSinceLowConfirm) ? open[j] : math.max(downOpenSinceLowConfirm, open[j])
+
+    if not na(highRef)
+        if close < open
+            bullLegMaxDownOpen := na(bullLegMaxDownOpen) ? open : math.max(bullLegMaxDownOpen, open)
+        if close > open
+            upOpenSinceHighConfirm := na(upOpenSinceHighConfirm) ? open : math.min(upOpenSinceHighConfirm, open)
+
+    if not na(lowRef)
+        if close > open
+            bearLegMinUpOpen := na(bearLegMinUpOpen) ? open : math.min(bearLegMinUpOpen, open)
+        if close < open
+            downOpenSinceLowConfirm := na(downOpenSinceLowConfirm) ? open : math.max(downOpenSinceLowConfirm, open)
+
+    bool highRaid = not na(highRef) and not highTaken and not na(highConfirmBar) and bar_index > highConfirmBar and high > highRef
+    bool lowRaid = not na(lowRef) and not lowTaken and not na(lowConfirmBar) and bar_index > lowConfirmBar and low < lowRef
+
+    if highRaid
+        highTaken := true
+    if lowRaid
+        lowTaken := true
+
+    if not (highRaid and lowRaid)
+        if lowRaid
+            float seedBullThreshold = not na(highRef) ? bullLegMaxDownOpen : downOpenSinceLowConfirm
+            if not na(seedBullThreshold)
+                pendingBull := true
+                bullThreshold := seedBullThreshold
+                bullProtected := low
+
+        if highRaid
+            float seedBearThreshold = not na(lowRef) ? bearLegMinUpOpen : upOpenSinceHighConfirm
+            if not na(seedBearThreshold)
+                pendingBear := true
+                bearThreshold := seedBearThreshold
+                bearProtected := high
+
+    if pendingBull
+        bullProtected := na(bullProtected) ? low : math.min(bullProtected, low)
+        if close < open and open > bullThreshold
+            bullThreshold := open
+        if close > bullThreshold
+            latestDir := 1
+            latestThreshold := bullThreshold
+            latestProtected := bullProtected
+            latestConfirmBar := bar_index
+            latestConfirmTime := time
+            pulse := 1
+            pendingBull := false
+
+    if pendingBear
+        bearProtected := na(bearProtected) ? high : math.max(bearProtected, high)
+        if close > open and open < bearThreshold
+            bearThreshold := open
+        if close < bearThreshold
+            latestDir := -1
+            latestThreshold := bearThreshold
+            latestProtected := bearProtected
+            latestConfirmBar := bar_index
+            latestConfirmTime := time
+            pulse := -1
+            pendingBear := false
+
+    [latestDir, pulse, latestThreshold, latestProtected, latestConfirmBar, latestConfirmTime]
+
+[csdDir, csdPulse, csdThreshold, csdProtected, csdConfirmBar, csdConfirmTime] = f_csd_engine(pivotSpan)
+
+plot(showCsdLevels ? csdThreshold : na, "Latest CSD threshold", color = color.new(color.yellow, 0), style = plot.style_stepline, linewidth = 2)
+plot(showCsdLevels ? csdProtected : na, "Latest CSD protected extreme", color = csdDir == 1 ? color.new(color.lime, 25) : csdDir == -1 ? color.new(color.red, 25) : color.new(color.gray, 70), style = plot.style_stepline, linewidth = 1)
+
+plotshape(csdPulse == 1, title = "Bullish CSD", text = "CSD ↑", style = shape.labelup, location = location.belowbar, size = size.tiny, color = color.new(color.lime, 0), textcolor = color.black)
+plotshape(csdPulse == -1, title = "Bearish CSD", text = "CSD ↓", style = shape.labeldown, location = location.abovebar, size = size.tiny, color = color.new(color.red, 0), textcolor = color.white)
+
+// ----------------------------------------------------------------------------
+// MODULE 4 — STRUCTURAL SMT
+// ----------------------------------------------------------------------------
+f_structural_take(int span) =>
+    var float hiRef = na
+    var float loRef = na
+    var int hiConfirmBar = na
+    var int loConfirmBar = na
+    var bool hiTaken = false
+    var bool loTaken = false
+
+    float localHi = ta.pivothigh(high, span, span)
+    float localLo = ta.pivotlow(low, span, span)
+
+    if not na(localHi)
+        hiRef := localHi
+        hiConfirmBar := bar_index
+        hiTaken := false
+
+    if not na(localLo)
+        loRef := localLo
+        loConfirmBar := bar_index
+        loTaken := false
+
+    bool highTake = not na(hiRef) and not hiTaken and bar_index > hiConfirmBar and high > hiRef
+    bool lowTake = not na(loRef) and not loTaken and bar_index > loConfirmBar and low < loRef
+
+    if highTake
+        hiTaken := true
+    if lowTake
+        loTaken := true
+
+    [highTake, lowTake, time]
+
+[l1HighTake, l1LowTake, l1EventTime] = request.security(smtLeg1, smtTf, f_structural_take(pivotSpan), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[l2HighTake, l2LowTake, l2EventTime] = request.security(smtLeg2, smtTf, f_structural_take(pivotSpan), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[l3HighTake, l3LowTake, l3EventTime] = request.security(smtLeg3, smtTf, f_structural_take(pivotSpan), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+bool l1Up = leg1Inverse ? l1LowTake : l1HighTake
+bool l1Down = leg1Inverse ? l1HighTake : l1LowTake
+bool l2Up = leg2Inverse ? l2LowTake : l2HighTake
+bool l2Down = leg2Inverse ? l2HighTake : l2LowTake
+bool l3Up = leg3Inverse ? l3LowTake : l3HighTake
+bool l3Down = leg3Inverse ? l3HighTake : l3LowTake
+
+bool anyUp = l1Up or l2Up or l3Up
+bool allUp = l1Up and l2Up and l3Up
+bool anyDown = l1Down or l2Down or l3Down
+bool allDown = l1Down and l2Down and l3Down
+
+bool highSideDiv = enableSMT and anyUp and not allUp
+bool lowSideDiv = enableSMT and anyDown and not allDown
+bool ambiguousSMT = highSideDiv and lowSideDiv
+
+int smtPulse = not ambiguousSMT ? (highSideDiv ? -1 : lowSideDiv ? 1 : 0) : 0
+int smtEventTime = l1EventTime
+
+var int latestSmtDir = 0
+var int latestSmtTime = na
+var int lastProcessedSmtTime = na
+bool newSmtEvent = false
+
+if smtPulse != 0 and (na(lastProcessedSmtTime) or smtEventTime != lastProcessedSmtTime)
+    latestSmtDir := smtPulse
+    latestSmtTime := smtEventTime
+    lastProcessedSmtTime := smtEventTime
+    newSmtEvent := true
+
+plotshape(newSmtEvent and latestSmtDir == 1, title = "Bullish SMT", text = "SMT ↑", style = shape.labelup, location = location.belowbar, size = size.tiny, color = color.new(color.aqua, 0), textcolor = color.black)
+plotshape(newSmtEvent and latestSmtDir == -1, title = "Bearish SMT", text = "SMT ↓", style = shape.labeldown, location = location.abovebar, size = size.tiny, color = color.new(color.fuchsia, 0), textcolor = color.white)
+
+// ----------------------------------------------------------------------------
+// MODULE 5 — POST-CSD IOFC
+// ----------------------------------------------------------------------------
+bool csdAfterSmt = latestSmtDir != 0 and csdDir == latestSmtDir and not na(csdConfirmTime) and not na(latestSmtTime) and csdConfirmTime >= latestSmtTime
+
+bool postCsdIofc =
+     csdAfterSmt and
+     not na(csdConfirmBar) and
+     not na(chartLatestIofSource) and
+     chartLatestIofSource > csdConfirmBar and
+     chartLatestIofDir == csdDir and
+     chartIofControl == csdDir
+
+string smtValidation = "NO SMT"
+if latestSmtDir != 0
+    if csdDir != latestSmtDir or not csdAfterSmt
+        smtValidation := "SMT DETECTED — WAIT CSD"
+    else if chartIofControl != latestSmtDir
+        smtValidation := "SMT DETECTED — WAIT IOF"
+    else
+        smtValidation := "SMT VALIDATED"
+
+string agentState = "WAITING FOR SMT"
+int agentDir = latestSmtDir
+
+if latestSmtDir != 0
+    if csdDir != latestSmtDir or not csdAfterSmt
+        agentState := "SMT CONFIRMED → WAIT CSD"
+    else if not postCsdIofc
+        agentState := "CSD CONFIRMED → WAIT POST-CSD IOFC"
+    else
+        agentState := "POST-CSD IOFC CONFIRMED → NEXT: MMXM"
+
+// ----------------------------------------------------------------------------
+// VISUAL IOF RANGE
+// ----------------------------------------------------------------------------
+plot(showIofLevels ? chartLatestIofHi : na, "Latest IOF range high", color = chartLatestIofDir == 1 ? color.new(color.lime, 45) : color.new(color.red, 45), style = plot.style_stepline)
+plot(showIofLevels ? chartLatestIofLo : na, "Latest IOF range low", color = chartLatestIofDir == 1 ? color.new(color.lime, 45) : color.new(color.red, 45), style = plot.style_stepline)
+
+// ----------------------------------------------------------------------------
+// DASHBOARD
+// ----------------------------------------------------------------------------
+var table dash = table.new(position.top_right, 2, 11, border_width = 1)
+
+if barstate.islast and showDashboard
+    table.cell(dash, 0, 0, "LONDRES AI", text_color = color.white, bgcolor = color.new(color.black, 0))
+    table.cell(dash, 1, 0, "V1", text_color = color.white, bgcolor = color.new(color.black, 0))
+
+    table.cell(dash, 0, 1, "HTF Narrative")
+    table.cell(dash, 1, 1, htfNarrativeText + " / " + f_dir_text(htfNarrative), text_color = f_dir_color(htfNarrative))
+
+    table.cell(dash, 0, 2, "Weekly IOF")
+    table.cell(dash, 1, 2, f_dir_text(wIof), text_color = f_dir_color(wIof))
+
+    table.cell(dash, 0, 3, "Daily IOF")
+    table.cell(dash, 1, 3, f_dir_text(dIof), text_color = f_dir_color(dIof))
+
+    table.cell(dash, 0, 4, "H4 IOF")
+    table.cell(dash, 1, 4, f_dir_text(h4Iof), text_color = f_dir_color(h4Iof))
+
+    table.cell(dash, 0, 5, "H1 IOF")
+    table.cell(dash, 1, 5, f_dir_text(h1Iof), text_color = f_dir_color(h1Iof))
+
+    table.cell(dash, 0, 6, "Chart IOF")
+    table.cell(dash, 1, 6, f_dir_text(chartIofControl), text_color = f_dir_color(chartIofControl))
+
+    table.cell(dash, 0, 7, "SMT")
+    table.cell(dash, 1, 7, latestSmtDir == 0 ? "NONE" : f_dir_text(latestSmtDir), text_color = f_dir_color(latestSmtDir))
+
+    table.cell(dash, 0, 8, "CSD")
+    table.cell(dash, 1, 8, csdDir == 0 ? "NONE" : f_dir_text(csdDir), text_color = f_dir_color(csdDir))
+
+    table.cell(dash, 0, 9, "Post-CSD IOFC")
+    table.cell(dash, 1, 9, f_bool_text(postCsdIofc), text_color = postCsdIofc ? color.lime : color.orange)
+
+    table.cell(dash, 0, 10, "Agent State")
+    table.cell(dash, 1, 10, agentState, text_color = f_dir_color(agentDir))
+
+// ----------------------------------------------------------------------------
+// JSON WEBHOOK ALERT
+// ----------------------------------------------------------------------------
+bool stateEvent = newSmtEvent or csdPulse != 0 or chartIofEvent != 0
+
+if enableJsonAlerts and barstate.isconfirmed and stateEvent
+    string payload =
+         "{" +
+         "\"engine\":\"LONDRES_AI_TRADING_AGENT_V1\"," +
+         "\"symbol\":\"" + syminfo.tickerid + "\"," +
+         "\"timeframe\":\"" + timeframe.period + "\"," +
+         "\"htf_narrative\":\"" + f_dir_text(htfNarrative) + "\"," +
+         "\"smt_direction\":\"" + f_dir_text(latestSmtDir) + "\"," +
+         "\"smt_validation\":\"" + smtValidation + "\"," +
+         "\"csd_direction\":\"" + f_dir_text(csdDir) + "\"," +
+         "\"iof_control\":\"" + f_dir_text(chartIofControl) + "\"," +
+         "\"post_csd_iofc\":" + (postCsdIofc ? "true" : "false") + "," +
+         "\"agent_state\":\"" + agentState + "\"" +
+         "}"
+    alert(payload, alert.freq_once_per_bar_close)
+
+alertcondition(newSmtEvent, "LONDRES AI — SMT", "LONDRES AI: new structural SMT event")
+alertcondition(csdPulse != 0, "LONDRES AI — CSD", "LONDRES AI: new CSD confirmation")
+alertcondition(chartIofEvent != 0, "LONDRES AI — IOF", "LONDRES AI: new IOF confirmation")
+alertcondition(postCsdIofc and not postCsdIofc[1], "LONDRES AI — Post-CSD IOFC", "LONDRES AI: post-CSD IOFC confirmed")
