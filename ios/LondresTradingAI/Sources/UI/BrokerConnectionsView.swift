@@ -6,7 +6,17 @@ struct BrokerConnectionsView: View {
 
     var body: some View {
         List {
-            Section("cTrader Open API") {
+            if broker.isMockMode {
+                Section("Developer Test Mode") {
+                    Label("Synthetic cTrader data", systemImage: "testtube.2")
+                        .font(.headline)
+                    Text("This build is using the opt-in cTrader mock gateway. Accounts, balances and margin values are synthetic and no cTrader login is contacted.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section(broker.isMockMode ? "cTrader Mock" : "cTrader Open API") {
                 HStack {
                     Label("cTrader", systemImage: "link.circle")
                     Spacer()
@@ -44,7 +54,7 @@ struct BrokerConnectionsView: View {
                         guard let url = broker.authorizationStartURL() else { return }
                         openURL(url)
                     } label: {
-                        Label("Connect cTrader", systemImage: "link.badge.plus")
+                        Label(broker.isMockMode ? "Connect Mock cTrader" : "Connect cTrader", systemImage: "link.badge.plus")
                     }
                     .disabled(!broker.isConfigured || broker.state == .connecting)
 
