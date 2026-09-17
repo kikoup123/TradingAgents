@@ -86,6 +86,9 @@ ignore = ["E501"]
 # retains socket.timeout explicitly for Python 3.10-era compatibility. The
 # production facade in brokers/ctrader.py uses builtin TimeoutError.
 "tradingagents/brokers/ctrader_readonly.py" = ["UP041"]
+# The mobile gateway keeps explicit UTF-8 encoding at its HMAC boundary so the
+# byte contract remains unambiguous when the session format is reviewed across runtimes.
+"services/londres_market_gateway/ctrader_mobile.py" = ["UP012"]
 
 [tool.ruff.lint.isort]
 # Keep multiple aliased names from one module in a single combined import block
