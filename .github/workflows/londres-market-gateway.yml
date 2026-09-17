@@ -7,6 +7,7 @@ on:
       - "tradingagents/brokers/ctrader_readonly.py"
       - "tests/test_londres_market_gateway.py"
       - "tests/test_ctrader_mobile_gateway.py"
+      - "tests/test_ctrader_mock_gateway.py"
       - ".github/workflows/londres-market-gateway.yml"
   push:
     branches:
@@ -16,6 +17,7 @@ on:
       - "tradingagents/brokers/ctrader_readonly.py"
       - "tests/test_londres_market_gateway.py"
       - "tests/test_ctrader_mobile_gateway.py"
+      - "tests/test_ctrader_mock_gateway.py"
       - ".github/workflows/londres-market-gateway.yml"
 
 concurrency:
@@ -41,6 +43,7 @@ jobs:
           services/londres_market_gateway
           tests/test_londres_market_gateway.py
           tests/test_ctrader_mobile_gateway.py
+          tests/test_ctrader_mock_gateway.py
       - name: Import gateway without starting vendor session
         run: python -c "from services.londres_market_gateway.app import app; print(app.title)"
       - name: Run deterministic gateway tests
@@ -48,3 +51,4 @@ jobs:
           pytest -q
           tests/test_londres_market_gateway.py
           tests/test_ctrader_mobile_gateway.py
+          tests/test_ctrader_mock_gateway.py
