@@ -66,9 +66,9 @@ GET  /v1/brokers/ctrader/account?account_key=...
 
 There are deliberately no broker execution routes in this milestone.
 
-## Server configuration
+## Server configuration after cTrader approval
 
-After Spotware approves the cTrader Open API application, configure the gateway with:
+Configure the gateway with:
 
 ```text
 CTRADER_CLIENT_ID=<approved client id>
@@ -88,6 +88,42 @@ Never commit real credential values.
 
 The exact `CTRADER_REDIRECT_URI` must also be added to the approved cTrader Open API application's Redirect URIs list.
 
+## Pre-approval mock mode
+
+The complete iOS handoff, encrypted broker-session storage, status screen and account-snapshot UI can be exercised before cTrader approves the Open API application.
+
+On the gateway, enable the mock routes only in a development environment:
+
+```text
+CTRADER_MOCK_MODE=true
+CTRADER_MOCK_SESSION_SECRET=<at least 32 random characters>
+CTRADER_IOS_CALLBACK_SCHEME=londrestradingai
+```
+
+Then set the iOS development launch environment to:
+
+```text
+LONDRES_BROKER_GATEWAY_BASE_URL=https://<development-gateway-host>
+LONDRES_CTRADER_MOCK_MODE=true
+```
+
+The app will use the `/v1/brokers/ctrader/mock/...` route family. `GET /mock/start` immediately performs the same one-time custom-URL handoff used by the production design, but the encrypted session contains synthetic credentials and one synthetic masked account. The mock account, balances, equity and margin values are not broker data.
+
+Mock mode is explicitly opt-in. When `CTRADER_MOCK_MODE` is absent or false, the mock route family returns 404. Keep both gateway and iOS mock flags disabled in production and TestFlight configurations.
+
+The mock route family contains only:
+
+```text
+GET  /v1/brokers/ctrader/mock/availability
+GET  /v1/brokers/ctrader/mock/start
+POST /v1/brokers/ctrader/mock/complete
+GET  /v1/brokers/ctrader/mock/status
+POST /v1/brokers/ctrader/mock/refresh
+GET  /v1/brokers/ctrader/mock/account?account_key=...
+```
+
+It has no order, position, trade or execution endpoint.
+
 ## iOS configuration
 
 The iOS app reads the gateway URL from:
@@ -103,6 +139,8 @@ The registered iOS callback scheme is:
 ```text
 londrestradingai://ctrader/complete
 ```
+
+The callback is handled at the app root and passed to `CTraderBrokerStore`. The store saves only the opaque broker-session token through `BrokerSessionStorage`; the production implementation uses iOS Keychain with a device-only accessibility class. The storage abstraction is injectable in unit tests so test runs do not touch real Keychain state.
 
 ## Account data exposed to UI
 
@@ -127,8 +165,31 @@ Normal UI does not receive:
 - demo/live routing classification;
 - cTrader proxy hostname.
 
+## Tests
+
+Backend tests cover:
+
+- required server-side configuration;
+- `accounts`-only OAuth URL construction;
+- encrypted session secrecy and masked public account identity;
+- fail-closed behavior when production credentials are absent;
+- the complete opt-in mock start → handoff → status → account → refresh flow;
+- absence of any mock execution route.
+
+iOS unit tests cover:
+
+- production versus mock route selection;
+- custom URL callback completion;
+- storage of the opaque broker-session token;
+- masked account decoding and account snapshot loading;
+- deletion of expired/unauthorized broker sessions.
+
+## Deployment note
+
+The one-time OAuth handoff cache is intentionally short-lived and in-memory. The current gateway runs as one worker. If the broker gateway is later horizontally scaled across multiple processes or instances, move the handoff cache to a shared short-TTL store before enabling that topology so the callback and `/complete` request cannot land on different workers.
+
 ## Current approval dependency
 
-The code can be built and tested before Spotware approval. Real cTrader OAuth cannot complete until the Open API application is approved and its production redirect URI and server credentials are configured.
+The code and complete mock path can be built and tested before cTrader approval. Real cTrader OAuth cannot complete until the Open API application is approved and its production redirect URI and server credentials are configured.
 
-Until those values exist, the broker screen reports cTrader as not configured and the rest of the Londres iOS app continues to operate normally.
+Until those values exist, production-mode broker connection reports cTrader as not configured while the rest of the Londres iOS app continues to operate normally.
