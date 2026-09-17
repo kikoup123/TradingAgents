@@ -91,7 +91,11 @@ def test_mock_router_contains_no_execution_endpoint() -> None:
         "/v1/brokers/ctrader/mock/refresh",
         "/v1/brokers/ctrader/mock/account",
     }
-    assert not any(
-        any(term in path for term in ("order", "position", "execute", "trade"))
+    endpoint_names = {
+        path.removeprefix("/v1/brokers/ctrader/mock/")
         for path in route_paths
+    }
+    assert not any(
+        any(term in endpoint for term in ("order", "position", "execute", "trade"))
+        for endpoint in endpoint_names
     )
