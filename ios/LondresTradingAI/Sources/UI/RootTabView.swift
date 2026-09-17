@@ -233,6 +233,7 @@ private struct AnalyticsView: View {
 private struct SettingsView: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var subscriptions: SubscriptionStore
+    @EnvironmentObject private var broker: CTraderBrokerStore
     @State private var purchaseStatus: String?
 
     var body: some View {
@@ -288,6 +289,23 @@ private struct SettingsView: View {
 
                 Text(subscriptions.hasProAccess ? "Londres Pro active" : "Londres Pro not active")
                 Text("The app only advertises the 1-month free trial when StoreKit reports that exact introductory offer and the Apple ID is eligible. Pricing and offer availability come from App Store Connect.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Broker Connections") {
+                NavigationLink {
+                    BrokerConnectionsView()
+                } label: {
+                    HStack {
+                        Label("cTrader", systemImage: "link.circle")
+                        Spacer()
+                        Text(broker.state.displayName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text("Read-only account access is the only broker permission enabled in this phase.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
