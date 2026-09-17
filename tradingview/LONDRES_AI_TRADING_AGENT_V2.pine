@@ -1,0 +1,658 @@
+//@version=6
+indicator("LONDRES AI TRADING AGENT — V2", overlay = true, scale = scale.none, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100)
+
+// ============================================================================
+// LONDRES AI TRADING AGENT — V2
+//
+// ARCHITECTURE
+// 1) Opening Price / Time & Price layer: visible on all chart timeframes.
+// 2) HTF IOF context: W / D / H4 / H1.
+// 3) Execution engine: ONLY active on 3-minute and 5-minute charts.
+// 4) Active execution setup only: SMT -> CSD -> post-CSD IOFC -> Entry/SL/Target.
+//
+// PRIMARY SYMBOL
+// Uses syminfo.tickerid, so the chart instrument follows the selected TradingView feed.
+// SMT companion symbols are user-selectable because broker/provider ticker names differ.
+//
+// TIMEZONE
+// Intraday opening prices use America/New_York, including DST.
+// ============================================================================
+
+string NY = "America/New_York"
+
+// ============================================================================
+// INPUTS — OPENING PRICE LAYER
+// ============================================================================
+groupOP = "01 — OPENING PRICE LAYER"
+showOpeningPrices = input.bool(true, "Show opening prices", group = groupOP)
+showOpenLabels = input.bool(true, "Show opening-price labels", group = groupOP)
+showOpenPriceInLabel = input.bool(false, "Show price in opening labels", group = groupOP)
+openStyleInput = input.string("Solid", "Intraday line style", options = ["Solid", "Dotted", "Dashed"], group = groupOP)
+openWidth = input.int(1, "Intraday line width", minval = 1, maxval = 4, group = groupOP)
+showMO = input.bool(true, "Show Monthly Open", group = groupOP)
+showWO = input.bool(true, "Show Weekly Open", group = groupOP)
+showPD1600 = input.bool(true, "Show Previous Day 16:00 Open", group = groupOP)
+
+color colAsia = input.color(color.fuchsia, "Asia 19:30", group = groupOP)
+color colMidnight = input.color(color.blue, "Midnight 00:00", group = groupOP)
+color colLondon = input.color(color.yellow, "London 01:30", group = groupOP)
+color col0200 = input.color(color.gray, "02:00", group = groupOP)
+color colNY = input.color(color.orange, "NY opening prices", group = groupOP)
+color colSettlement = input.color(color.teal, "18:00 Settlement", group = groupOP)
+color colPD1600 = input.color(color.gray, "Previous Day 16:00", group = groupOP)
+color colMO = input.color(color.blue, "Monthly Open", group = groupOP)
+color colWO = input.color(color.blue, "Weekly Open", group = groupOP)
+
+// ============================================================================
+// INPUTS — EXECUTION
+// ============================================================================
+groupExec = "02 — 3m / 5m EXECUTION"
+pivotSpan = input.int(2, "Structural pivot span", minval = 1, maxval = 10, group = groupExec)
+maxCandidates = input.int(200, "IOF candidate retention", minval = 20, maxval = 500, group = groupExec)
+targetRR = input.float(5.0, "Target R multiple", minval = 1.0, maxval = 10.0, step = 0.5, group = groupExec)
+executionMinutes = input.int(120, "Execution graphic length (minutes)", minval = 30, maxval = 480, group = groupExec)
+showDashboard = input.bool(true, "Show context dashboard", group = groupExec)
+
+// ============================================================================
+// INPUTS — SMT
+// ============================================================================
+groupSMT = "03 — SMT COMPANIONS"
+enableSMT = input.bool(true, "Enable SMT", group = groupSMT)
+smtLeg1 = input.symbol("CME_MINI:NQ1!", "SMT Leg 1", group = groupSMT)
+smtLeg2 = input.symbol("CME_MINI:ES1!", "SMT Leg 2", group = groupSMT)
+smtLeg3 = input.symbol("CBOT_MINI:YM1!", "SMT Leg 3", group = groupSMT)
+leg1Inverse = input.bool(false, "Leg 1 inverse polarity", group = groupSMT)
+leg2Inverse = input.bool(false, "Leg 2 inverse polarity", group = groupSMT)
+leg3Inverse = input.bool(false, "Leg 3 inverse polarity", group = groupSMT)
+
+// ============================================================================
+// INPUTS — ALERTS
+// ============================================================================
+groupAlerts = "04 — ALERTS"
+enableJsonAlerts = input.bool(true, "Enable JSON execution alerts", group = groupAlerts)
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+f_line_style(string styleText) =>
+    styleText == "Dotted" ? line.style_dotted : styleText == "Dashed" ? line.style_dashed : line.style_solid
+
+f_dir_text(int d) =>
+    d == 1 ? "BULLISH" : d == -1 ? "BEARISH" : d == 2 ? "TRANSITION" : "UNCONFIRMED"
+
+f_dir_color(int d) =>
+    d == 1 ? color.lime : d == -1 ? color.red : d == 2 ? color.orange : color.gray
+
+f_price_text(float p) =>
+    str.tostring(p, format.mintick)
+
+f_open_label(string name, float p) =>
+    showOpenPriceInLabel ? name + "  " + f_price_text(p) : name
+
+// ============================================================================
+// CURRENT-MONTH OPENING-PRICE DRAWING STORAGE
+// Intraday objects are cleared when New York enters a new calendar month.
+// ============================================================================
+var array<line> opLines = array.new_line()
+var array<label> opLabels = array.new_label()
+
+f_clear_open_history() =>
+    while array.size(opLines) > 0
+        line.delete(array.pop(opLines))
+    while array.size(opLabels) > 0
+        label.delete(array.pop(opLabels))
+
+f_end_of_ny_day(int eventTime) =>
+    int y = year(eventTime, NY)
+    int m = month(eventTime, NY)
+    int d = dayofmonth(eventTime, NY)
+    timestamp(NY, y, m, d + 1, 0, 0) - 1
+
+f_add_open(float p, int eventTime, int durationMinutes, string text, color c, int width, line_style style) =>
+    if showOpeningPrices and not na(p) and not na(eventTime)
+        int wantedEnd = eventTime + durationMinutes * 60 * 1000
+        int dayEnd = f_end_of_ny_day(eventTime)
+        int endTime = math.min(wantedEnd, dayEnd)
+        line ln = line.new(eventTime, p, endTime, p, xloc = xloc.bar_time, extend = extend.none, color = c, style = style, width = width)
+        array.push(opLines, ln)
+        if showOpenLabels
+            label lb = label.new(endTime, p, f_open_label(text, p), xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = c, size = size.tiny)
+            array.push(opLabels, lb)
+
+// ============================================================================
+// EXACT NEW YORK OPEN CAPTURE ON 1-MINUTE DATA
+// Each call maintains one value for the current New York calendar day.
+// ============================================================================
+f_capture_open(int targetHour, int targetMinute) =>
+    var float capturedPrice = na
+    var int capturedTime = na
+    int dayKey = year(time, NY) * 10000 + month(time, NY) * 100 + dayofmonth(time, NY)
+    bool newDay = na(dayKey[1]) or dayKey != dayKey[1]
+    if newDay
+        capturedPrice := na
+        capturedTime := na
+    if hour(time, NY) == targetHour and minute(time, NY) == targetMinute
+        capturedPrice := open
+        capturedTime := time
+    [capturedPrice, capturedTime]
+
+[p1930, t1930] = request.security(syminfo.tickerid, "1", f_capture_open(19, 30), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p0000, t0000] = request.security(syminfo.tickerid, "1", f_capture_open(0, 0), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p0130, t0130] = request.security(syminfo.tickerid, "1", f_capture_open(1, 30), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p0200, t0200] = request.security(syminfo.tickerid, "1", f_capture_open(2, 0), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p0730, t0730] = request.security(syminfo.tickerid, "1", f_capture_open(7, 30), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p0830, t0830] = request.security(syminfo.tickerid, "1", f_capture_open(8, 30), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p0930, t0930] = request.security(syminfo.tickerid, "1", f_capture_open(9, 30), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p1000, t1000] = request.security(syminfo.tickerid, "1", f_capture_open(10, 0), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p1330, t1330] = request.security(syminfo.tickerid, "1", f_capture_open(13, 30), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p1400, t1400] = request.security(syminfo.tickerid, "1", f_capture_open(14, 0), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p1500, t1500] = request.security(syminfo.tickerid, "1", f_capture_open(15, 0), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p1600, t1600] = request.security(syminfo.tickerid, "1", f_capture_open(16, 0), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[p1800, t1800] = request.security(syminfo.tickerid, "1", f_capture_open(18, 0), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+// ============================================================================
+// MONTH RESET FOR INTRADAY HISTORICAL OPENS
+// ============================================================================
+int nyMonthKey = year(time, NY) * 100 + month(time, NY)
+bool newNyMonth = not na(nyMonthKey[1]) and nyMonthKey != nyMonthKey[1]
+if newNyMonth
+    f_clear_open_history()
+
+line_style intradayStyle = f_line_style(openStyleInput)
+
+// Original Londres line lengths, always clamped to the same NY calendar day.
+if not na(t1930) and (na(t1930[1]) or t1930 != t1930[1])
+    f_add_open(p1930, t1930, 60, "ASIA 19:30", colAsia, openWidth, intradayStyle)
+
+if not na(t0000) and (na(t0000[1]) or t0000 != t0000[1])
+    f_add_open(p0000, t0000, 1080, "MIDNIGHT 00:00", colMidnight, 3, line.style_solid)
+
+if not na(t0130) and (na(t0130[1]) or t0130 != t0130[1])
+    f_add_open(p0130, t0130, 270, "LD 01:30", colLondon, openWidth, intradayStyle)
+
+if not na(t0200) and (na(t0200[1]) or t0200 != t0200[1])
+    f_add_open(p0200, t0200, 60, "02:00", col0200, openWidth, intradayStyle)
+
+if not na(t0730) and (na(t0730[1]) or t0730 != t0730[1])
+    f_add_open(p0730, t0730, 270, "NY PREMARKET 07:30", colNY, openWidth, intradayStyle)
+
+if not na(t0830) and (na(t0830[1]) or t0830 != t0830[1])
+    f_add_open(p0830, t0830, 210, "NY OPEN 08:30", colNY, openWidth, intradayStyle)
+
+if not na(t0930) and (na(t0930[1]) or t0930 != t0930[1])
+    f_add_open(p0930, t0930, 150, "EQUITIES 09:30", colNY, openWidth, intradayStyle)
+
+if not na(t1000) and (na(t1000[1]) or t1000 != t1000[1])
+    f_add_open(p1000, t1000, 120, "10:00", colNY, openWidth, intradayStyle)
+
+if not na(t1330) and (na(t1330[1]) or t1330 != t1330[1])
+    f_add_open(p1330, t1330, 150, "13:30", colNY, openWidth, intradayStyle)
+
+if not na(t1400) and (na(t1400[1]) or t1400 != t1400[1])
+    f_add_open(p1400, t1400, 135, "14:00", colNY, openWidth, intradayStyle)
+
+if not na(t1500) and (na(t1500[1]) or t1500 != t1500[1])
+    f_add_open(p1500, t1500, 1260, "15:00", colNY, openWidth, intradayStyle)
+
+if not na(t1800) and (na(t1800[1]) or t1800 != t1800[1])
+    f_add_open(p1800, t1800, 1080, "SETTLEMENT 18:00", colSettlement, openWidth, intradayStyle)
+
+// ============================================================================
+// PREVIOUS-DAY 16:00 OPEN
+// Capture the most recent completed NY day's 16:00 price and draw it through
+// the next NY calendar day. This naturally carries Friday's 16:00 through the
+// next trading day when weekend sessions provide no new 16:00 print.
+// ============================================================================
+f_prev_day_1600() =>
+    var float today1600 = na
+    var int today1600Time = na
+    var float previous1600 = na
+    var int activeDayStart = na
+    int dayStart = timestamp(NY, year(time, NY), month(time, NY), dayofmonth(time, NY), 0, 0)
+    bool newDay = na(activeDayStart) or dayStart != activeDayStart
+    if newDay
+        if not na(today1600)
+            previous1600 := today1600
+        today1600 := na
+        today1600Time := na
+        activeDayStart := dayStart
+    if hour(time, NY) == 16 and minute(time, NY) == 0
+        today1600 := open
+        today1600Time := time
+    [previous1600, activeDayStart]
+
+[pd1600, pdDayStart] = request.security(syminfo.tickerid, "1", f_prev_day_1600(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+if showPD1600 and not na(pd1600) and not na(pdDayStart) and (na(pdDayStart[1]) or pdDayStart != pdDayStart[1])
+    f_add_open(pd1600, pdDayStart, 1440, "PD 16:00", colPD1600, openWidth, line.style_dashed)
+
+// ============================================================================
+// MONTHLY OPEN / WEEKLY OPEN
+// Uses the selected TradingView provider's own M/W candle open. The graphic
+// spans exactly that provider's current calendar month/week.
+// ============================================================================
+[monthlyOpen, monthlyStart, monthlyEnd] = request.security(syminfo.tickerid, "M", [open, time, time_close], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[weeklyOpen, weeklyStart, weeklyEnd] = request.security(syminfo.tickerid, "W", [open, time, time_close], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+
+var line moLine = na
+var label moLabel = na
+var int lastMonthlyStart = na
+
+if showMO and not na(monthlyOpen) and not na(monthlyStart)
+    if na(lastMonthlyStart) or monthlyStart != lastMonthlyStart
+        if not na(moLine)
+            line.delete(moLine)
+        if not na(moLabel)
+            label.delete(moLabel)
+        moLine := line.new(monthlyStart, monthlyOpen, monthlyEnd, monthlyOpen, xloc = xloc.bar_time, extend = extend.none, color = colMO, style = line.style_solid, width = 3)
+        if showOpenLabels
+            moLabel := label.new(monthlyEnd, monthlyOpen, f_open_label("MO", monthlyOpen), xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = colMO, size = size.small)
+        lastMonthlyStart := monthlyStart
+
+var line woLine = na
+var label woLabel = na
+var int lastWeeklyStart = na
+
+if showWO and not na(weeklyOpen) and not na(weeklyStart)
+    if na(lastWeeklyStart) or weeklyStart != lastWeeklyStart
+        if not na(woLine)
+            line.delete(woLine)
+        if not na(woLabel)
+            label.delete(woLabel)
+        woLine := line.new(weeklyStart, weeklyOpen, weeklyEnd, weeklyOpen, xloc = xloc.bar_time, extend = extend.none, color = colWO, style = line.style_solid, width = 3)
+        if showOpenLabels
+            woLabel := label.new(weeklyEnd, weeklyOpen, f_open_label("WO", weeklyOpen), xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = colWO, size = size.small)
+        lastWeeklyStart := weeklyStart
+
+// ============================================================================
+// IOF ENGINE
+// Bullish IOF: down-close range + later BODY close above its high.
+// Bearish IOF: up-close range + later BODY close below its low.
+// Wick-only breaks do not confirm.
+// ============================================================================
+f_iof_engine(int retain) =>
+    var array<float> bullHi = array.new_float()
+    var array<float> bullLo = array.new_float()
+    var array<int> bullSrc = array.new_int()
+    var array<float> bearHi = array.new_float()
+    var array<float> bearLo = array.new_float()
+    var array<int> bearSrc = array.new_int()
+    var int control = 0
+    var int latestDir = 0
+    var float latestHi = na
+    var float latestLo = na
+    var int latestSourceBar = na
+
+    if latestDir == 1 and control == 1 and not na(latestLo) and close < latestLo
+        control := 2
+    if latestDir == -1 and control == -1 and not na(latestHi) and close > latestHi
+        control := 2
+
+    int eventDir = 0
+    int eventSource = -1
+    float eventHi = na
+    float eventLo = na
+
+    if array.size(bullHi) > 0
+        for i = array.size(bullHi) - 1 to 0
+            float candidateHi = array.get(bullHi, i)
+            float candidateLo = array.get(bullLo, i)
+            int candidateSrc = array.get(bullSrc, i)
+            if close > candidateHi
+                if candidateSrc > eventSource
+                    eventDir := 1
+                    eventSource := candidateSrc
+                    eventHi := candidateHi
+                    eventLo := candidateLo
+                array.remove(bullHi, i)
+                array.remove(bullLo, i)
+                array.remove(bullSrc, i)
+
+    if array.size(bearHi) > 0
+        for i = array.size(bearHi) - 1 to 0
+            float candidateHi = array.get(bearHi, i)
+            float candidateLo = array.get(bearLo, i)
+            int candidateSrc = array.get(bearSrc, i)
+            if close < candidateLo
+                if candidateSrc > eventSource
+                    eventDir := -1
+                    eventSource := candidateSrc
+                    eventHi := candidateHi
+                    eventLo := candidateLo
+                array.remove(bearHi, i)
+                array.remove(bearLo, i)
+                array.remove(bearSrc, i)
+
+    if eventDir != 0
+        latestDir := eventDir
+        latestHi := eventHi
+        latestLo := eventLo
+        latestSourceBar := eventSource
+        control := eventDir
+
+    if close < open
+        array.push(bullHi, high)
+        array.push(bullLo, low)
+        array.push(bullSrc, bar_index)
+    else if close > open
+        array.push(bearHi, high)
+        array.push(bearLo, low)
+        array.push(bearSrc, bar_index)
+
+    while array.size(bullHi) > retain
+        array.shift(bullHi)
+        array.shift(bullLo)
+        array.shift(bullSrc)
+    while array.size(bearHi) > retain
+        array.shift(bearHi)
+        array.shift(bearLo)
+        array.shift(bearSrc)
+
+    [control, latestDir, latestHi, latestLo, eventDir, latestSourceBar]
+
+[chartIofControl, chartLatestIofDir, chartLatestIofHi, chartLatestIofLo, chartIofEvent, chartLatestIofSource] = f_iof_engine(maxCandidates)
+[wIof, wLatestDir, wIofHi, wIofLo, wEvent, wSource] = request.security(syminfo.tickerid, "W", f_iof_engine(maxCandidates), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[dIof, dLatestDir, dIofHi, dIofLo, dEvent, dSource] = request.security(syminfo.tickerid, "D", f_iof_engine(maxCandidates), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h4Iof, h4LatestDir, h4IofHi, h4IofLo, h4Event, h4Source] = request.security(syminfo.tickerid, "240", f_iof_engine(maxCandidates), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h1Iof, h1LatestDir, h1IofHi, h1IofLo, h1Event, h1Source] = request.security(syminfo.tickerid, "60", f_iof_engine(maxCandidates), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+int htfNarrative = 0
+string htfNarrativeText = "MIXED / UNRESOLVED"
+if wIof == dIof and dIof == h4Iof and wIof != 0 and wIof != 2
+    htfNarrative := wIof
+    htfNarrativeText := "W + D + H4 ALIGNED"
+else if dIof == h4Iof and h4Iof == h1Iof and dIof != 0 and dIof != 2
+    htfNarrative := dIof
+    htfNarrativeText := "D + H4 + H1 ALIGNED"
+
+// ============================================================================
+// CSD ENGINE
+// Sell-side raid -> body reclaim above highest relevant down-close open = bullish.
+// Buy-side raid -> body reclaim below lowest relevant up-close open = bearish.
+// ============================================================================
+f_csd_engine(int span) =>
+    var float highRef = na
+    var float lowRef = na
+    var int highConfirmBar = na
+    var int lowConfirmBar = na
+    var bool highTaken = false
+    var bool lowTaken = false
+    var float bullLegMaxDownOpen = na
+    var float bearLegMinUpOpen = na
+    var float downOpenSinceLowConfirm = na
+    var float upOpenSinceHighConfirm = na
+    var bool pendingBull = false
+    var bool pendingBear = false
+    var float bullThreshold = na
+    var float bearThreshold = na
+    var float bullProtected = na
+    var float bearProtected = na
+    var int latestDir = 0
+    var float latestThreshold = na
+    var float latestProtected = na
+    var int latestConfirmBar = na
+    var int latestConfirmTime = na
+    int pulse = 0
+
+    float localPh = ta.pivothigh(high, span, span)
+    float localPl = ta.pivotlow(low, span, span)
+
+    if not na(localPh)
+        highRef := localPh
+        highConfirmBar := bar_index
+        highTaken := false
+        bullLegMaxDownOpen := na
+        upOpenSinceHighConfirm := na
+        for j = 0 to span
+            if close[j] < open[j]
+                bullLegMaxDownOpen := na(bullLegMaxDownOpen) ? open[j] : math.max(bullLegMaxDownOpen, open[j])
+            if close[j] > open[j]
+                upOpenSinceHighConfirm := na(upOpenSinceHighConfirm) ? open[j] : math.min(upOpenSinceHighConfirm, open[j])
+
+    if not na(localPl)
+        lowRef := localPl
+        lowConfirmBar := bar_index
+        lowTaken := false
+        bearLegMinUpOpen := na
+        downOpenSinceLowConfirm := na
+        for j = 0 to span
+            if close[j] > open[j]
+                bearLegMinUpOpen := na(bearLegMinUpOpen) ? open[j] : math.min(bearLegMinUpOpen, open[j])
+            if close[j] < open[j]
+                downOpenSinceLowConfirm := na(downOpenSinceLowConfirm) ? open[j] : math.max(downOpenSinceLowConfirm, open[j])
+
+    if not na(highRef)
+        if close < open
+            bullLegMaxDownOpen := na(bullLegMaxDownOpen) ? open : math.max(bullLegMaxDownOpen, open)
+        if close > open
+            upOpenSinceHighConfirm := na(upOpenSinceHighConfirm) ? open : math.min(upOpenSinceHighConfirm, open)
+
+    if not na(lowRef)
+        if close > open
+            bearLegMinUpOpen := na(bearLegMinUpOpen) ? open : math.min(bearLegMinUpOpen, open)
+        if close < open
+            downOpenSinceLowConfirm := na(downOpenSinceLowConfirm) ? open : math.max(downOpenSinceLowConfirm, open)
+
+    bool highRaid = not na(highRef) and not highTaken and not na(highConfirmBar) and bar_index > highConfirmBar and high > highRef
+    bool lowRaid = not na(lowRef) and not lowTaken and not na(lowConfirmBar) and bar_index > lowConfirmBar and low < lowRef
+
+    if highRaid
+        highTaken := true
+    if lowRaid
+        lowTaken := true
+
+    if not (highRaid and lowRaid)
+        if lowRaid
+            float seedBull = not na(highRef) ? bullLegMaxDownOpen : downOpenSinceLowConfirm
+            if not na(seedBull)
+                pendingBull := true
+                bullThreshold := seedBull
+                bullProtected := low
+        if highRaid
+            float seedBear = not na(lowRef) ? bearLegMinUpOpen : upOpenSinceHighConfirm
+            if not na(seedBear)
+                pendingBear := true
+                bearThreshold := seedBear
+                bearProtected := high
+
+    if pendingBull
+        bullProtected := na(bullProtected) ? low : math.min(bullProtected, low)
+        if close < open and open > bullThreshold
+            bullThreshold := open
+        if close > bullThreshold
+            latestDir := 1
+            latestThreshold := bullThreshold
+            latestProtected := bullProtected
+            latestConfirmBar := bar_index
+            latestConfirmTime := time_close
+            pulse := 1
+            pendingBull := false
+
+    if pendingBear
+        bearProtected := na(bearProtected) ? high : math.max(bearProtected, high)
+        if close > open and open < bearThreshold
+            bearThreshold := open
+        if close < bearThreshold
+            latestDir := -1
+            latestThreshold := bearThreshold
+            latestProtected := bearProtected
+            latestConfirmBar := bar_index
+            latestConfirmTime := time_close
+            pulse := -1
+            pendingBear := false
+
+    [latestDir, pulse, latestThreshold, latestProtected, latestConfirmBar, latestConfirmTime]
+
+[csdDir, csdPulse, csdThreshold, csdProtected, csdConfirmBar, csdConfirmTime] = f_csd_engine(pivotSpan)
+
+// ============================================================================
+// STRUCTURAL SMT ENGINE
+// Runs on the current chart timeframe. Execution is gated to 3m/5m only.
+// ============================================================================
+f_structural_take(int span) =>
+    var float hiRef = na
+    var float loRef = na
+    var int hiConfirmBar = na
+    var int loConfirmBar = na
+    var bool hiTaken = false
+    var bool loTaken = false
+    float localHi = ta.pivothigh(high, span, span)
+    float localLo = ta.pivotlow(low, span, span)
+    if not na(localHi)
+        hiRef := localHi
+        hiConfirmBar := bar_index
+        hiTaken := false
+    if not na(localLo)
+        loRef := localLo
+        loConfirmBar := bar_index
+        loTaken := false
+    bool highTake = not na(hiRef) and not hiTaken and bar_index > hiConfirmBar and high > hiRef
+    bool lowTake = not na(loRef) and not loTaken and bar_index > loConfirmBar and low < loRef
+    if highTake
+        hiTaken := true
+    if lowTake
+        loTaken := true
+    [highTake, lowTake, time]
+
+[l1HighTake, l1LowTake, l1EventTime] = request.security(smtLeg1, timeframe.period, f_structural_take(pivotSpan), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[l2HighTake, l2LowTake, l2EventTime] = request.security(smtLeg2, timeframe.period, f_structural_take(pivotSpan), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[l3HighTake, l3LowTake, l3EventTime] = request.security(smtLeg3, timeframe.period, f_structural_take(pivotSpan), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+bool l1Up = leg1Inverse ? l1LowTake : l1HighTake
+bool l1Down = leg1Inverse ? l1HighTake : l1LowTake
+bool l2Up = leg2Inverse ? l2LowTake : l2HighTake
+bool l2Down = leg2Inverse ? l2HighTake : l2LowTake
+bool l3Up = leg3Inverse ? l3LowTake : l3HighTake
+bool l3Down = leg3Inverse ? l3HighTake : l3LowTake
+
+bool highSideDiv = enableSMT and (l1Up or l2Up or l3Up) and not (l1Up and l2Up and l3Up)
+bool lowSideDiv = enableSMT and (l1Down or l2Down or l3Down) and not (l1Down and l2Down and l3Down)
+bool ambiguousSMT = highSideDiv and lowSideDiv
+int smtPulse = not ambiguousSMT ? (highSideDiv ? -1 : lowSideDiv ? 1 : 0) : 0
+int smtEventTime = l1EventTime
+
+var int latestSmtDir = 0
+var int latestSmtTime = na
+var int lastProcessedSmtTime = na
+
+if smtPulse != 0 and (na(lastProcessedSmtTime) or smtEventTime != lastProcessedSmtTime)
+    latestSmtDir := smtPulse
+    latestSmtTime := smtEventTime
+    lastProcessedSmtTime := smtEventTime
+
+// ============================================================================
+// EXECUTION GATE — ONLY 3 MINUTES OR 5 MINUTES
+// ============================================================================
+bool isExecutionTf = timeframe.isminutes and (timeframe.multiplier == 3 or timeframe.multiplier == 5)
+
+bool csdAfterSmt = isExecutionTf and latestSmtDir != 0 and csdDir == latestSmtDir and not na(csdConfirmTime) and not na(latestSmtTime) and csdConfirmTime >= latestSmtTime
+
+bool postCsdIofc = isExecutionTf and csdAfterSmt and not na(csdConfirmBar) and not na(chartLatestIofSource) and chartLatestIofSource > csdConfirmBar and chartLatestIofDir == csdDir and chartIofControl == csdDir
+
+bool executionTrigger = postCsdIofc and not postCsdIofc[1]
+
+// ============================================================================
+// ACTIVE EXECUTION GRAPHICS ONLY
+// ============================================================================
+var line execCsdLine = na
+var line execIofLine = na
+var line execEntryLine = na
+var line execSlLine = na
+var line execTargetLine = na
+var box execRiskBox = na
+var box execTargetBox = na
+var label execSmtLabel = na
+var label execCsdLabel = na
+var label execIofLabel = na
+var label execEntryLabel = na
+var label execSlLabel = na
+var label execTargetLabel = na
+
+f_delete_exec() =>
+    if not na(execCsdLine)
+        line.delete(execCsdLine)
+    if not na(execIofLine)
+        line.delete(execIofLine)
+    if not na(execEntryLine)
+        line.delete(execEntryLine)
+    if not na(execSlLine)
+        line.delete(execSlLine)
+    if not na(execTargetLine)
+        line.delete(execTargetLine)
+    if not na(execRiskBox)
+        box.delete(execRiskBox)
+    if not na(execTargetBox)
+        box.delete(execTargetBox)
+    if not na(execSmtLabel)
+        label.delete(execSmtLabel)
+    if not na(execCsdLabel)
+        label.delete(execCsdLabel)
+    if not na(execIofLabel)
+        label.delete(execIofLabel)
+    if not na(execEntryLabel)
+        label.delete(execEntryLabel)
+    if not na(execSlLabel)
+        label.delete(execSlLabel)
+    if not na(execTargetLabel)
+        label.delete(execTargetLabel)
+
+if executionTrigger
+    float entryPrice = close
+    float slPrice = csdProtected
+    float iofConfirmPrice = csdDir == 1 ? chartLatestIofHi : chartLatestIofLo
+    bool validRisk = csdDir == 1 ? slPrice < entryPrice : slPrice > entryPrice
+    float risk = math.abs(entryPrice - slPrice)
+    if validRisk and risk >= syminfo.mintick
+        f_delete_exec()
+        int execStart = time_close
+        int execEnd = execStart + executionMinutes * 60 * 1000
+        float targetPrice = csdDir == 1 ? entryPrice + risk * targetRR : entryPrice - risk * targetRR
+        color dirColor = csdDir == 1 ? color.lime : color.red
+
+        execCsdLine := line.new(csdConfirmTime, csdThreshold, execEnd, csdThreshold, xloc = xloc.bar_time, extend = extend.none, color = color.orange, width = 2)
+        execIofLine := line.new(execStart, iofConfirmPrice, execEnd, iofConfirmPrice, xloc = xloc.bar_time, extend = extend.none, color = dirColor, width = 2)
+        execEntryLine := line.new(execStart, entryPrice, execEnd, entryPrice, xloc = xloc.bar_time, extend = extend.none, color = color.white, style = line.style_dashed, width = 1)
+        execSlLine := line.new(execStart, slPrice, execEnd, slPrice, xloc = xloc.bar_time, extend = extend.none, color = color.red, width = 1)
+        execTargetLine := line.new(execStart, targetPrice, execEnd, targetPrice, xloc = xloc.bar_time, extend = extend.none, color = color.aqua, width = 1)
+
+        execRiskBox := box.new(execStart, math.max(entryPrice, slPrice), execEnd, math.min(entryPrice, slPrice), xloc = xloc.bar_time, bgcolor = color.new(color.red, 82), border_color = color.new(color.red, 30))
+        execTargetBox := box.new(execStart, math.max(entryPrice, targetPrice), execEnd, math.min(entryPrice, targetPrice), xloc = xloc.bar_time, bgcolor = color.new(color.blue, 86), border_color = color.new(color.aqua, 45))
+
+        execSmtLabel := label.new(execStart, csdDir == 1 ? low : high, "SMT " + f_dir_text(csdDir), xloc = xloc.bar_time, style = csdDir == 1 ? label.style_label_up : label.style_label_down, color = color.new(color.black, 0), textcolor = color.aqua, size = size.small)
+        execCsdLabel := label.new(execEnd, csdThreshold, "CSD CONFIRMING SMT", xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = color.orange, size = size.small)
+        execIofLabel := label.new(execEnd, iofConfirmPrice, "IOF CONFIRMED", xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = dirColor, size = size.small)
+        execEntryLabel := label.new(execEnd, entryPrice, "ENTRY  " + f_price_text(entryPrice), xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = color.white, size = size.tiny)
+        execSlLabel := label.new(execEnd, slPrice, "SL  " + f_price_text(slPrice), xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = color.red, size = size.tiny)
+        execTargetLabel := label.new(execEnd, targetPrice, "TARGET " + str.tostring(targetRR, "#.0") + "R  " + f_price_text(targetPrice), xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = color.aqua, size = size.tiny)
+
+// ============================================================================
+// DASHBOARD
+// ============================================================================
+var table dash = table.new(position.top_right, 2, 8, border_width = 1)
+
+if barstate.islast and showDashboard
+    table.cell(dash, 0, 0, "LONDRES AI", text_color = color.white, bgcolor = color.black)
+    table.cell(dash, 1, 0, "V2", text_color = color.white, bgcolor = color.black)
+    table.cell(dash, 0, 1, "Execution TF")
+    table.cell(dash, 1, 1, isExecutionTf ? "ACTIVE " + timeframe.period + "m" : "OFF — 3m/5m ONLY", text_color = isExecutionTf ? color.lime : color.gray)
+    table.cell(dash, 0, 2, "HTF Narrative")
+    table.cell(dash, 1, 2, htfNarrativeText + " / " + f_dir_text(htfNarrative), text_color = f_dir_color(htfNarrative))
+    table.cell(dash, 0, 3, "H4 IOF")
+    table.cell(dash, 1, 3, f_dir_text(h4Iof), text_color = f_dir_color(h4Iof))
+    table.cell(dash, 0, 4, "H1 IOF")
+    table.cell(dash, 1, 4, f_dir_text(h1Iof), text_color = f_dir_color(h1Iof))
+    table.cell(dash, 0, 5, "SMT")
+    table.cell(dash, 1, 5, latestSmtDir == 0 ? "NONE" : f_dir_text(latestSmtDir), text_color = f_dir_color(latestSmtDir))
+    table.cell(dash, 0, 6, "CSD")
+    table.cell(dash, 1, 6, csdDir == 0 ? "NONE" : f_dir_text(csdDir), text_color = f_dir_color(csdDir))
+    table.cell(dash, 0, 7, "Post-CSD IOFC")
+    table.cell(dash, 1, 7, postCsdIofc ? "CONFIRMED" : "WAITING", text_color = postCsdIofc ? color.lime : color.orange)
+
+// ============================================================================
+// EXECUTION ALERT
+// ============================================================================
+if enableJsonAlerts and barstate.isconfirmed and executionTrigger
+    string payload = "{\"engine\":\"LONDRES_AI_TRADING_AGENT_V2\",\"symbol\":\"" + syminfo.tickerid + "\",\"timeframe\":\"" + timeframe.period + "\",\"direction\":\"" + f_dir_text(csdDir) + "\",\"htf_narrative\":\"" + f_dir_text(htfNarrative) + "\",\"csd_threshold\":" + str.tostring(csdThreshold) + ",\"iof_control\":\"" + f_dir_text(chartIofControl) + "\",\"post_csd_iofc\":true}"
+    alert(payload, alert.freq_once_per_bar_close)
+
+alertcondition(executionTrigger, title = "LONDRES AI V2 — EXECUTION", message = "LONDRES AI V2: 3m/5m execution sequence confirmed")
