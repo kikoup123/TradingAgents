@@ -16,3 +16,13 @@ services:
         value: NQ,ES,YM
       - key: LONDRES_GATEWAY_BEARER_TOKEN
         sync: false
+      - key: CTRADER_CLIENT_ID
+        sync: false
+      - key: CTRADER_CLIENT_SECRET
+        sync: false
+      - key: CTRADER_REDIRECT_URI
+        sync: false
+      - key: CTRADER_SESSION_SECRET
+        sync: false
+      - key: CTRADER_IOS_CALLBACK_SCHEME
+        value: londrestradingai
