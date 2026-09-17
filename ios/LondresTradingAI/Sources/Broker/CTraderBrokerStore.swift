@@ -5,6 +5,7 @@ import Security
 struct BrokerGatewayConfiguration: Hashable, Sendable {
     let baseURL: URL
     let callbackScheme: String
+    let useMockCTrader: Bool
 
     static func fromRuntime() -> BrokerGatewayConfiguration? {
         let environment = ProcessInfo.processInfo.environment
@@ -24,7 +25,15 @@ struct BrokerGatewayConfiguration: Hashable, Sendable {
         let callback = environment["LONDRES_CTRADER_CALLBACK_SCHEME"]
             ?? Bundle.main.object(forInfoDictionaryKey: "LONDRES_CTRADER_CALLBACK_SCHEME") as? String
             ?? "londrestradingai"
-        return BrokerGatewayConfiguration(baseURL: url, callbackScheme: callback.lowercased())
+        let mockValue = environment["LONDRES_CTRADER_MOCK_MODE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let useMock = ["1", "true", "yes", "on"].contains(mockValue ?? "")
+        return BrokerGatewayConfiguration(
+            baseURL: url,
+            callbackScheme: callback.lowercased(),
+            useMockCTrader: useMock
+        )
     }
 }
 
@@ -90,6 +99,12 @@ enum CTraderBrokerConnectionState: String, Sendable {
     }
 }
 
+protocol BrokerSessionStorage {
+    func save(_ value: String) throws
+    func load() throws -> String?
+    func delete() throws
+}
+
 @MainActor
 final class CTraderBrokerStore: ObservableObject {
     @Published private(set) var state: CTraderBrokerConnectionState
@@ -99,21 +114,25 @@ final class CTraderBrokerStore: ObservableObject {
 
     private let configuration: BrokerGatewayConfiguration?
     private let session: URLSession
-    private let keychain = BrokerSessionKeychain()
+    private let sessionStorage: any BrokerSessionStorage
 
     init(
         configuration: BrokerGatewayConfiguration? = BrokerGatewayConfiguration.fromRuntime(),
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        sessionStorage: any BrokerSessionStorage = BrokerSessionKeychain()
     ) {
         self.configuration = configuration
         self.session = session
+        self.sessionStorage = sessionStorage
         self.state = configuration == nil ? .unavailable : .disconnected
     }
 
     var isConfigured: Bool { configuration != nil }
+    var isMockMode: Bool { configuration?.useMockCTrader == true }
 
     func authorizationStartURL() -> URL? {
-        configuration?.baseURL.appendingPathComponent("v1/brokers/ctrader/start")
+        guard let configuration else { return nil }
+        return configuration.baseURL.appendingPathComponent(brokerPath("start"))
     }
 
     func handleCallback(_ url: URL) async {
@@ -147,12 +166,12 @@ final class CTraderBrokerStore: ObservableObject {
         do {
             let body = try JSONEncoder().encode(CompleteOAuthRequest(code: handoffCode))
             let response: CompleteOAuthResponse = try await request(
-                path: "v1/brokers/ctrader/complete",
+                path: brokerPath("complete"),
                 method: "POST",
                 body: body,
                 brokerSession: nil
             )
-            try keychain.save(response.brokerSessionToken)
+            try sessionStorage.save(response.brokerSessionToken)
             accounts = response.accounts
             state = response.connected ? .connected : .disconnected
         } catch {
@@ -175,7 +194,7 @@ final class CTraderBrokerStore: ObservableObject {
 
         do {
             let response: BrokerStatusResponse = try await request(
-                path: "v1/brokers/ctrader/status",
+                path: brokerPath("status"),
                 method: "GET",
                 brokerSession: token
             )
@@ -183,13 +202,15 @@ final class CTraderBrokerStore: ObservableObject {
             state = response.connected ? .connected : .disconnected
             errorMessage = nil
         } catch BrokerGatewayError.invalidHTTPStatus(401) {
-            try? keychain.delete()
+            try? sessionStorage.delete()
             accounts = []
             selectedAccountSnapshot = nil
             state = .disconnected
         } catch BrokerGatewayError.invalidHTTPStatus(503) {
             state = .unavailable
-            errorMessage = "The cTrader gateway is waiting for its approved API credentials."
+            errorMessage = isMockMode
+                ? "The cTrader mock gateway is missing its development session secret."
+                : "The cTrader gateway is waiting for its approved API credentials."
         } catch {
             state = .failed
             errorMessage = userFacingMessage(for: error)
@@ -203,11 +224,11 @@ final class CTraderBrokerStore: ObservableObject {
         }
         do {
             let response: RefreshBrokerSessionResponse = try await request(
-                path: "v1/brokers/ctrader/refresh",
+                path: brokerPath("refresh"),
                 method: "POST",
                 brokerSession: token
             )
-            try keychain.save(response.brokerSessionToken)
+            try sessionStorage.save(response.brokerSessionToken)
             accounts = response.accounts
             state = .connected
             errorMessage = nil
@@ -224,7 +245,7 @@ final class CTraderBrokerStore: ObservableObject {
         }
         do {
             let response: AccountSnapshotResponse = try await request(
-                path: "v1/brokers/ctrader/account",
+                path: brokerPath("account"),
                 method: "GET",
                 queryItems: [URLQueryItem(name: "account_key", value: account.accountKey)],
                 brokerSession: token
@@ -237,16 +258,23 @@ final class CTraderBrokerStore: ObservableObject {
     }
 
     func disconnectDevice() {
-        try? keychain.delete()
+        try? sessionStorage.delete()
         accounts = []
         selectedAccountSnapshot = nil
         errorMessage = nil
         state = configuration == nil ? .unavailable : .disconnected
     }
 
+    private func brokerPath(_ endpoint: String) -> String {
+        let prefix = configuration?.useMockCTrader == true
+            ? "v1/brokers/ctrader/mock"
+            : "v1/brokers/ctrader"
+        return "\(prefix)/\(endpoint)"
+    }
+
     private func storedSessionToken() -> String? {
         do {
-            return try keychain.load()
+            return try sessionStorage.load()
         } catch {
             return nil
         }
@@ -333,7 +361,7 @@ private enum BrokerGatewayError: Error, Equatable {
     case invalidHTTPStatus(Int)
 }
 
-private struct BrokerSessionKeychain {
+struct BrokerSessionKeychain: BrokerSessionStorage {
     private let service = "com.tradingsand.londrestradingai.ctrader"
     private let account = "broker-session-v1"
 
