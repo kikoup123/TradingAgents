@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, AsyncIterator
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 
 from .ctrader_mobile import router as ctrader_router
-from .models import Bar, Quote, SUPPORTED_TIMEFRAMES, UTC
+from .models import SUPPORTED_TIMEFRAMES, UTC, Bar, Quote
 from .rolling_databento_feed import RollingDatabentoMarketFeed
 
 feed = RollingDatabentoMarketFeed()
