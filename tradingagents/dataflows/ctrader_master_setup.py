@@ -1,15 +1,29 @@
 from __future__ import annotations
 
-from tradingagents.dataflows.ctrader_csd import analyze_csd_orderflow
-from tradingagents.dataflows.ctrader_smt import detect_smt
-from tradingagents.dataflows.ctrader_entry import evaluate_ltf_continuation
+from tradingagents.dataflows.ctrader_csd import (
+    analyze_csd_orderflow,
+)
+from tradingagents.dataflows.ctrader_smt import (
+    detect_smt,
+)
+from tradingagents.dataflows.ctrader_entry import (
+    evaluate_ltf_continuation,
+)
+from tradingagents.dataflows.ctrader_unicorn import (
+    evaluate_unicorn_entry,
+)
 
 
-def _direction_from_control(control: str | None) -> str | None:
+def _direction_from_control(
+    control: str | None,
+) -> str | None:
+
     if control == "bullish_control":
         return "bullish"
+
     if control == "bearish_control":
         return "bearish"
+
     return None
 
 
@@ -19,41 +33,75 @@ def _htf_gate(
     h1: dict,
 ) -> dict:
 
-    required = f"{direction}_control"
+    required = (
+        f"{direction}_control"
+    )
+
     opposite = (
         "bearish_control"
         if direction == "bullish"
         else "bullish_control"
     )
 
-    h4_control = h4.get("current_orderflow_control", "none")
-    h1_control = h1.get("current_orderflow_control", "none")
+    h4_control = h4.get(
+        "current_orderflow_control",
+        "none",
+    )
 
-    if h4_control == opposite or h1_control == opposite:
+    h1_control = h1.get(
+        "current_orderflow_control",
+        "none",
+    )
+
+    if (
+        h4_control == opposite
+        or h1_control == opposite
+    ):
         status = "FAIL"
         passed = False
-        reason = "At least one HTF is under confirmed opposing control."
 
-    elif h4_control == required and h1_control == required:
+        reason = (
+            "At least one HTF is under "
+            "confirmed opposing control."
+        )
+
+    elif (
+        h4_control == required
+        and h1_control == required
+    ):
         status = "PASS"
         passed = True
-        reason = "H4 and H1 confirmed order flow are aligned."
+
+        reason = (
+            "H4 and H1 confirmed order "
+            "flow are aligned."
+        )
 
     else:
         status = "PARTIAL"
         passed = False
+
         reason = (
-            "H4/H1 do not both have confirmed order-flow control "
+            "H4/H1 do not both have "
+            "confirmed order-flow control "
             "in the execution direction."
         )
 
     return {
         "status": status,
         "passed": passed,
-        "direction_required": direction,
-        "H4_control": h4_control,
-        "H1_control": h1_control,
-        "reason": reason,
+
+        "direction_required":
+            direction,
+
+        "H4_control":
+            h4_control,
+
+        "H1_control":
+            h1_control,
+
+        "reason":
+            reason,
     }
 
 
@@ -75,19 +123,21 @@ def evaluate_master_setup(
         "US TECH 100",
     }:
         raise ValueError(
-            "Master setup v1 currently supports the NASDAQ/US500 model."
+            "Master setup currently supports "
+            "the NASDAQ/US500 model."
         )
 
-    # --------------------------------------------------
-    # 1. Higher-timeframe deterministic context
-    # --------------------------------------------------
+    # ==================================================
+    # HTF CONTEXT
+    # ==================================================
 
     h4 = analyze_csd_orderflow(
         symbol="NASDAQ",
         timeframe="H4",
         count=htf_count,
         pivot_window=pivot_window,
-        confirmation_bars=confirmation_bars,
+        confirmation_bars=
+            confirmation_bars,
     )
 
     h1 = analyze_csd_orderflow(
@@ -95,19 +145,21 @@ def evaluate_master_setup(
         timeframe="H1",
         count=htf_count,
         pivot_window=pivot_window,
-        confirmation_bars=confirmation_bars,
+        confirmation_bars=
+            confirmation_bars,
     )
 
-    # --------------------------------------------------
-    # 2. Execution-timeframe CSD / IOF
-    # --------------------------------------------------
+    # ==================================================
+    # FIRST CSD / M15 IOF
+    # ==================================================
 
     m15 = analyze_csd_orderflow(
         symbol="NASDAQ",
         timeframe="M15",
         count=execution_count,
         pivot_window=pivot_window,
-        confirmation_bars=confirmation_bars,
+        confirmation_bars=
+            confirmation_bars,
     )
 
     execution_control = m15.get(
@@ -120,34 +172,64 @@ def evaluate_master_setup(
     )
 
     if direction is None:
-        return {
-            "instrument": "NASDAQ",
-            "correlated_market": "US500",
 
-            "setup_status": "BLOCKED",
-            "entry_allowed": False,
+        return {
+            "instrument":
+                "NASDAQ",
+
+            "correlated_market":
+                "US500",
+
+            "setup_status":
+                "BLOCKED",
+
+            "entry_allowed":
+                False,
 
             "reason": (
-                "No confirmed NASDAQ M15 post-CSD institutional "
+                "No confirmed NASDAQ M15 "
+                "post-CSD institutional "
                 "order-flow control."
             ),
 
             "gates": {
-                "HTF": "NOT_EVALUATED",
-                "LIQUIDITY": "NOT_CONFIRMED",
-                "SMT": "NOT_EVALUATED",
-                "CSD": "NOT_CONFIRMED",
-                "IOF": "NOT_CONFIRMED",
-                "LTF": "NOT_EVALUATED",
-                "ENTRY": "BLOCKED",
+                "HTF":
+                    "NOT_EVALUATED",
+
+                "LIQUIDITY":
+                    "NOT_CONFIRMED",
+
+                "SMT":
+                    "NOT_EVALUATED",
+
+                "CSD":
+                    "NOT_CONFIRMED",
+
+                "IOF":
+                    "NOT_CONFIRMED",
+
+                "LTF":
+                    "NOT_EVALUATED",
+
+                "ENTRY":
+                    "BLOCKED",
             },
 
-            "m15_control": execution_control,
+            "m15_control":
+                execution_control,
+
+            "safety": {
+                "execution_enabled":
+                    False,
+
+                "order_placement":
+                    False,
+            },
         }
 
-    # --------------------------------------------------
-    # 3. HTF alignment
-    # --------------------------------------------------
+    # ==================================================
+    # HTF GATE
+    # ==================================================
 
     htf_gate = _htf_gate(
         direction,
@@ -155,13 +237,14 @@ def evaluate_master_setup(
         h1,
     )
 
-    # --------------------------------------------------
-    # 4. Liquidity + CSD gates
-    # --------------------------------------------------
+    # ==================================================
+    # LIQUIDITY + FIRST CSD
+    # ==================================================
 
-    active_csd = m15.get(
-        "active_csd"
-    ) or {}
+    active_csd = (
+        m15.get("active_csd")
+        or {}
+    )
 
     expected_liquidity = (
         "sell_side_raid"
@@ -170,33 +253,49 @@ def evaluate_master_setup(
     )
 
     liquidity_pass = (
-        active_csd.get("confirmed") is True
-        and active_csd.get("direction") == direction
-        and active_csd.get("liquidity") == expected_liquidity
+        active_csd.get("confirmed")
+        is True
+        and active_csd.get(
+            "direction"
+        ) == direction
+        and active_csd.get(
+            "liquidity"
+        ) == expected_liquidity
     )
 
     csd_pass = (
-        active_csd.get("confirmed") is True
-        and active_csd.get("direction") == direction
+        active_csd.get("confirmed")
+        is True
+        and active_csd.get(
+            "direction"
+        ) == direction
     )
 
-    # --------------------------------------------------
-    # 5. Post-CSD IOF gate
-    # --------------------------------------------------
+    # ==================================================
+    # FIRST POST-CSD IOF
+    # ==================================================
 
-    post_iof = m15.get(
-        "post_csd_iof"
-    ) or {}
+    post_iof = (
+        m15.get("post_csd_iof")
+        or {}
+    )
 
     iof_pass = (
-        execution_control == f"{direction}_control"
-        and post_iof.get("confirmed") is True
-        and post_iof.get("still_holding") is True
+        execution_control
+        == f"{direction}_control"
+
+        and post_iof.get(
+            "confirmed"
+        ) is True
+
+        and post_iof.get(
+            "still_holding"
+        ) is True
     )
 
-    # --------------------------------------------------
-    # 6. Deterministic SMT
-    # --------------------------------------------------
+    # ==================================================
+    # SMT
+    # ==================================================
 
     smt = detect_smt(
         timeframe="M15",
@@ -204,24 +303,27 @@ def evaluate_master_setup(
         pivot_window=pivot_window,
     )
 
-    if direction == "bullish":
-        smt_detail = smt.get(
+    smt_detail = (
+        smt.get(
             "bullish_smt",
             {},
         )
-    else:
-        smt_detail = smt.get(
+        if direction == "bullish"
+        else smt.get(
             "bearish_smt",
             {},
         )
-
-    smt_pass = (
-        smt_detail.get("detected") is True
     )
 
-    # --------------------------------------------------
-    # 7. Deterministic LTF continuation
-    # --------------------------------------------------
+    smt_pass = (
+        smt_detail.get(
+            "detected"
+        ) is True
+    )
+
+    # ==================================================
+    # LTF CONTINUATION
+    # ==================================================
 
     ltf = evaluate_ltf_continuation(
         symbol="NASDAQ",
@@ -229,19 +331,101 @@ def evaluate_master_setup(
         csd_timeframe="M15",
         count=execution_count,
         pivot_window=pivot_window,
-        confirmation_bars=confirmation_bars,
+        confirmation_bars=
+            confirmation_bars,
     )
 
     ltf_pass = (
-        ltf.get("ltf_gate_passed") is True
-        and ltf.get("status") == "VALID_CONTINUATION"
-        and ltf.get("direction") == direction
-        and ltf.get("protected_swing_intact") is True
+        ltf.get(
+            "ltf_gate_passed"
+        ) is True
+
+        and ltf.get(
+            "status"
+        ) == "VALID_CONTINUATION"
+
+        and ltf.get(
+            "direction"
+        ) == direction
+
+        and ltf.get(
+            "protected_swing_intact"
+        ) is True
     )
 
-    # --------------------------------------------------
-    # 8. Master pre-entry state
-    # --------------------------------------------------
+    # ==================================================
+    # PRE-ENTRY MASTER GATE
+    # ==================================================
+
+    mandatory_pre_entry = (
+        htf_gate["passed"]
+        and liquidity_pass
+        and smt_pass
+        and csd_pass
+        and iof_pass
+        and ltf_pass
+    )
+
+    # ==================================================
+    # FINAL UNICORN / HOUSING ENTRY MODEL
+    # ==================================================
+
+    entry_result = {
+        "status":
+            "BLOCKED_BY_PRE_ENTRY",
+
+        "entry_gate_passed":
+            False,
+
+        "execution_allowed":
+            False,
+    }
+
+    if mandatory_pre_entry:
+
+        entry_result = (
+            evaluate_unicorn_entry(
+                symbol="NASDAQ",
+                direction=direction,
+                count=execution_count,
+                pivot_window=
+                    pivot_window,
+                confirmation_bars=
+                    confirmation_bars,
+            )
+        )
+
+    entry_pass = (
+        entry_result.get(
+            "entry_gate_passed"
+        ) is True
+    )
+
+    entry_invalidated = (
+        entry_result.get(
+            "entry_model_invalidated"
+        ) is True
+
+        or entry_result.get(
+            "status"
+        ) == "INVALIDATED"
+    )
+
+    if not mandatory_pre_entry:
+        entry_gate_status = "BLOCKED"
+
+    elif entry_pass:
+        entry_gate_status = "PASS"
+
+    elif entry_invalidated:
+        entry_gate_status = "FAIL"
+
+    else:
+        entry_gate_status = "WAIT"
+
+    # ==================================================
+    # FINAL GATES
+    # ==================================================
 
     gates = {
         "HTF": (
@@ -280,55 +464,93 @@ def evaluate_master_setup(
             else "FAIL"
         ),
 
-        # Housing candle / Unicorn entry model
-        # has not yet been mechanically encoded.
-        "ENTRY": "NOT_EVALUATED",
+        "ENTRY":
+            entry_gate_status,
     }
 
-    mandatory_pre_entry = (
-        htf_gate["passed"]
-        and liquidity_pass
-        and smt_pass
-        and csd_pass
-        and iof_pass
-        and ltf_pass
-    )
-
-    if mandatory_pre_entry:
-        setup_status = "READY_FOR_ENTRY_MODEL"
-    else:
-        setup_status = "BLOCKED"
-
     failed_gates = [
-        name
-        for name in (
+        gate
+        for gate in (
             "HTF",
             "LIQUIDITY",
             "SMT",
             "CSD",
             "IOF",
             "LTF",
+            "ENTRY",
         )
-        if gates[name] != "PASS"
+        if gates[gate] == "FAIL"
     ]
 
+    waiting_gates = [
+        gate
+        for gate in (
+            "HTF",
+            "LIQUIDITY",
+            "SMT",
+            "CSD",
+            "IOF",
+            "LTF",
+            "ENTRY",
+        )
+        if gates[gate]
+        in {
+            "WAIT",
+            "PARTIAL",
+        }
+    ]
+
+    if not mandatory_pre_entry:
+
+        setup_status = "BLOCKED"
+
+    elif entry_invalidated:
+
+        setup_status = "BLOCKED"
+
+    elif entry_pass:
+
+        setup_status = (
+            "ENTRY_MODEL_CONFIRMED"
+        )
+
+    else:
+
+        setup_status = (
+            "WAITING_FOR_ENTRY_MODEL"
+        )
+
     return {
-        "instrument": "NASDAQ",
-        "correlated_market": "US500",
+        "instrument":
+            "NASDAQ",
 
-        "direction": direction,
+        "correlated_market":
+            "US500",
 
-        "setup_status": setup_status,
+        "direction":
+            direction,
 
-        # Remains False until the final entry model
-        # is mechanically implemented and confirmed.
-        "entry_allowed": False,
+        "setup_status":
+            setup_status,
+
+        # Model confirmation and broker
+        # order execution remain separate.
+        "entry_model_confirmed":
+            entry_pass,
+
+        # Still FALSE:
+        # no automatic order placement.
+        "entry_allowed":
+            False,
 
         "pre_entry_gates_passed":
             mandatory_pre_entry,
 
         "failed_gates":
             failed_gates,
+
+        "waiting_gates":
+            waiting_gates,
 
         "gates":
             gates,
@@ -337,73 +559,127 @@ def evaluate_master_setup(
             htf_gate,
 
         "liquidity_detail": {
-            "expected": expected_liquidity,
-            "passed": liquidity_pass,
-            "event": (
-                active_csd.get("liquidity")
-            ),
-            "raid_time": (
-                active_csd.get("raid_time")
-            ),
+            "expected":
+                expected_liquidity,
+
+            "passed":
+                liquidity_pass,
+
+            "event":
+                active_csd.get(
+                    "liquidity"
+                ),
+
+            "raid_time":
+                active_csd.get(
+                    "raid_time"
+                ),
         },
 
         "SMT_detail":
             smt_detail,
 
         "CSD_detail": {
-            "passed": csd_pass,
-            "direction": (
-                active_csd.get("direction")
-            ),
-            "threshold": (
-                active_csd.get("csd_threshold")
-            ),
-            "confirmation_time": (
-                active_csd.get("confirmation_time")
-            ),
+            "passed":
+                csd_pass,
+
+            "direction":
+                active_csd.get(
+                    "direction"
+                ),
+
+            "threshold":
+                active_csd.get(
+                    "csd_threshold"
+                ),
+
+            "confirmation_time":
+                active_csd.get(
+                    "confirmation_time"
+                ),
         },
 
         "IOF_detail": {
-            "passed": iof_pass,
-            "control": execution_control,
-            "source_time": (
-                post_iof.get("source_time")
-            ),
-            "confirmation_time": (
-                post_iof.get("confirmation_time")
-            ),
-            "still_holding": (
-                post_iof.get("still_holding")
-            ),
+            "passed":
+                iof_pass,
+
+            "control":
+                execution_control,
+
+            "source_time":
+                post_iof.get(
+                    "source_time"
+                ),
+
+            "confirmation_time":
+                post_iof.get(
+                    "confirmation_time"
+                ),
+
+            "still_holding":
+                post_iof.get(
+                    "still_holding"
+                ),
         },
 
         "LTF_detail": {
-            "passed": ltf_pass,
-            "status": ltf.get("status"),
+            "passed":
+                ltf_pass,
+
+            "status":
+                ltf.get(
+                    "status"
+                ),
+
             "protected_swing_intact":
                 ltf.get(
                     "protected_swing_intact"
                 ),
+
             "reason":
-                ltf.get("reason"),
+                ltf.get(
+                    "reason"
+                ),
         },
+
+        "ENTRY_detail":
+            entry_result,
 
         "hierarchy": [
             "HTF context",
             "Liquidity raid",
             "SMT",
-            "CSD",
-            "Post-CSD IOF",
+            "First CSD",
+            "Post-first-CSD IOF",
             "LTF continuation",
-            "Entry model",
+            "Breaker + FVG Unicorn",
+            "Negated internal FVG",
+            "Housing Candle",
+            "IFVG body close",
+            "IFVG/Housing retest",
+            "Second CSD",
+            "New IOF",
+            "Entry model confirmed",
         ],
 
         "safety": {
-            "execution_enabled": False,
-            "order_placement": False,
+            "execution_enabled":
+                False,
+
+            "order_placement":
+                False,
+
+            "exact_order_price_defined":
+                entry_result.get(
+                    "exact_order_price_defined",
+                    False,
+                ),
+
             "reason": (
-                "Final entry model has not yet "
-                "been deterministically implemented."
+                "The entry model can now be "
+                "validated deterministically, "
+                "but automatic broker execution "
+                "remains disabled."
             ),
         },
     }
