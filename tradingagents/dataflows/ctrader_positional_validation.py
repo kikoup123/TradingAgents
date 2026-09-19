@@ -24,7 +24,6 @@ from tradingagents.dataflows.ctrader_positional import (
     evaluate_positional_from_bars,
 )
 
-
 HTF_MINUTES = {
     "W1": 10080,
     "D1": 1440,
