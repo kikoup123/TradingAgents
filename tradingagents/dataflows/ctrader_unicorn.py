@@ -57,7 +57,18 @@ def _fetch(
     if "error" in payload:
         raise RuntimeError(payload["error"])
 
-    return payload["bars"]
+    bars = payload["bars"]
+
+    # Every deterministic price-structure algorithm
+    # must operate strictly oldest -> newest.
+    bars = sorted(
+        bars,
+        key=lambda bar: datetime.fromisoformat(
+            bar["time"]
+        ),
+    )
+
+    return bars
 
 
 def _dt(value: str) -> datetime:
