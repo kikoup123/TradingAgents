@@ -1,20 +1,10 @@
 from __future__ import annotations
 
-from tradingagents.dataflows.ctrader_csd import (
-    analyze_csd_orderflow,
-)
-from tradingagents.dataflows.ctrader_smt import (
-    detect_smt,
-)
-from tradingagents.dataflows.ctrader_entry import (
-    evaluate_ltf_continuation,
-)
-from tradingagents.dataflows.ctrader_positional import (
-    evaluate_positional_entry,
-)
-from tradingagents.dataflows.ctrader_unicorn import (
-    evaluate_unicorn_entry,
-)
+from tradingagents.dataflows.ctrader_csd import analyze_csd_orderflow
+from tradingagents.dataflows.ctrader_entry import evaluate_ltf_continuation
+from tradingagents.dataflows.ctrader_positional import evaluate_positional_entry
+from tradingagents.dataflows.ctrader_smt import detect_smt
+from tradingagents.dataflows.ctrader_unicorn import evaluate_unicorn_entry
 
 
 def _direction_from_control(
@@ -593,13 +583,12 @@ def evaluate_master_setup(
         }
     ]
 
-    if not core_pre_entry:
-
-        setup_status = "BLOCKED"
-
-    elif positional_result.get(
-        "status"
-    ) == "POSITIONAL_STOPPED":
+    if (
+        not core_pre_entry
+        or positional_result.get(
+            "status"
+        ) == "POSITIONAL_STOPPED"
+    ):
 
         setup_status = "BLOCKED"
 
