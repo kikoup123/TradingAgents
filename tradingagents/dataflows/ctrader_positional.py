@@ -1,17 +1,16 @@
 """Deterministic Trading Sand positional-entry model.
 
-The positional entry is an advanced alternative to waiting for a new intra-candle
-entry model.  It is only armed when the previous higher-timeframe candle has
-already closed with a confirmed lower-timeframe CSD and a protected swing that
-is structurally valid relative to the previous candle's equilibrium.
+The positional path mirrors the LONDRES HTF SUITE fractal rules while preserving
+the video-derived protected-swing concept. A positional signal is only armed
+when the qualifying HTF candle is closed, its mapped LTF CSD already exists,
+and a protected swing formed before the next HTF candle opened.
 
-The model is intentionally execution-safe: it defines the signal, stop reference,
-and HTF STD -2 objective, but never authorizes a broker order.
+Broker execution remains deliberately disabled.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import requests
@@ -62,11 +61,7 @@ def _sort_bars(bars: list[dict]) -> list[dict]:
 def _fetch(symbol: str, timeframe: str, count: int) -> list[dict]:
     response = requests.get(
         f"{BRIDGE_URL}/bars",
-        params={
-            "symbol": symbol,
-            "timeframe": timeframe,
-            "count": count,
-        },
+        params={"symbol": symbol, "timeframe": timeframe, "count": count},
         timeout=50,
     )
     response.raise_for_status()
@@ -114,17 +109,9 @@ def _directional_csd(
     confirmation_bars: int,
 ):
     if direction == "bullish":
-        confirmed, _ = _find_bullish_csd(
-            bars,
-            pivot_window,
-            confirmation_bars,
-        )
+        confirmed, _ = _find_bullish_csd(bars, pivot_window, confirmation_bars)
     else:
-        confirmed, _ = _find_bearish_csd(
-            bars,
-            pivot_window,
-            confirmation_bars,
-        )
+        confirmed, _ = _find_bearish_csd(bars, pivot_window, confirmation_bars)
     return confirmed
 
 
@@ -132,6 +119,149 @@ def _protected_price(event: dict, direction: str) -> float | None:
     key = "protected_low" if direction == "bullish" else "protected_high"
     value = event.get(key)
     return None if value is None else float(value)
+
+
+def _c2_direction(c1: dict, c2: dict) -> str | None:
+    """Exact LONDRES HTF SUITE C2 sweep/reclaim rule."""
+    c1_high = float(c1["high"])
+    c1_low = float(c1["low"])
+    c2_high = float(c2["high"])
+    c2_low = float(c2["low"])
+    c2_close = float(c2["close"])
+
+    if c2_high > c1_high and c2_close <= c1_high:
+        return "bearish"
+    if c2_low < c1_low and c2_close >= c1_low:
+        return "bullish"
+    return None
+
+
+def _opposite_model(reference: dict, current: dict, direction: str) -> bool:
+    """Pine f_opposite_model_at_index translated to chronological bars."""
+    if direction == "bearish":
+        return (
+            float(current["low"]) < float(reference["low"])
+            and float(current["close"]) > float(reference["low"])
+        )
+    return (
+        float(current["high"]) > float(reference["high"])
+        and float(current["close"]) < float(reference["high"])
+    )
+
+
+def _follow_through_failure(reference: dict, current: dict, direction: str) -> dict[str, Any]:
+    if direction == "bearish":
+        level_fail = float(current["high"]) > float(reference["high"])
+    else:
+        level_fail = float(current["low"]) < float(reference["low"])
+
+    opposite_fail = _opposite_model(reference, current, direction)
+    return {
+        "failed": level_fail or opposite_fail,
+        "level_fail": level_fail,
+        "opposite_model_fail": opposite_fail,
+        "reference_time": reference["time"],
+        "current_time": current["time"],
+    }
+
+
+def _resolve_fractal_stage(
+    htf: list[dict],
+    *,
+    direction: str,
+) -> dict[str, Any] | None:
+    """Resolve whether the next open is C3 or C4 in the Pine fractal model."""
+    if len(htf) < 3:
+        return None
+
+    qualifying = htf[-2]
+    next_candle = htf[-1]
+
+    # Standard C2 -> C3 positional entry.
+    c1 = htf[-3]
+    if _c2_direction(c1, qualifying) == direction:
+        return {
+            "stage": "C2",
+            "entry_label": "C3_OPEN",
+            "model_c1": c1,
+            "model_c2": qualifying,
+            "qualifying_candle": qualifying,
+            "next_candle": next_candle,
+            "prior_follow_through": None,
+        }
+
+    # Advanced continuation: valid C3 closure -> C4 positional entry.
+    if len(htf) < 4:
+        return None
+
+    c1 = htf[-4]
+    c2 = htf[-3]
+    c3 = htf[-2]
+    if _c2_direction(c1, c2) != direction:
+        return None
+
+    c3_state = _follow_through_failure(c2, c3, direction)
+    if c3_state["failed"]:
+        return None
+
+    return {
+        "stage": "C3",
+        "entry_label": "C4_OPEN",
+        "model_c1": c1,
+        "model_c2": c2,
+        "qualifying_candle": c3,
+        "next_candle": next_candle,
+        "prior_follow_through": c3_state,
+    }
+
+
+def _wick_eq_price(
+    direction: str,
+    candle: dict,
+    *,
+    min_tick: float = 1e-12,
+) -> float | None:
+    """Exact directional-wick EQ geometry from LONDRES HTF SUITE."""
+    open_price = float(candle["open"])
+    high = float(candle["high"])
+    low = float(candle["low"])
+    close = float(candle["close"])
+
+    body = abs(close - open_price)
+    min_body = max(body, min_tick)
+
+    if direction == "bearish":
+        wick_top = high
+        wick_bottom = max(open_price, close)
+        wick_size = wick_top - wick_bottom
+    else:
+        wick_top = min(open_price, close)
+        wick_bottom = low
+        wick_size = wick_top - wick_bottom
+
+    if wick_size < min_body * 0.40:
+        return None
+    return (wick_top + wick_bottom) / 2.0
+
+
+def _tspot_zone(direction: str, candle: dict) -> dict[str, float]:
+    """Exact T-Spot geometry projected from the qualifying candle."""
+    high = float(candle["high"])
+    low = float(candle["low"])
+    close = float(candle["close"])
+
+    if direction == "bearish":
+        top = (high + close) / 2.0
+        bottom = close
+    else:
+        top = close
+        bottom = (close + low) / 2.0
+
+    return {
+        "top": max(top, bottom),
+        "bottom": min(top, bottom),
+        "mid": (top + bottom) / 2.0,
+    }
 
 
 def _price_created_inside_candle(
@@ -158,15 +288,28 @@ def _swing_intact_after(
     return not any(float(bar["high"]) > protected_price for bar in later)
 
 
-def _eq_valid(
+def _eq_covers(
     protected_price: float,
     *,
-    eq: float,
+    eq: float | None,
     direction: str,
 ) -> bool:
+    if eq is None:
+        return False
     if direction == "bullish":
         return protected_price <= eq
     return protected_price >= eq
+
+
+def _tspot_covers(
+    protected_price: float,
+    *,
+    tspot: dict[str, float],
+    direction: str,
+) -> bool:
+    if direction == "bullish":
+        return protected_price <= tspot["bottom"]
+    return protected_price >= tspot["top"]
 
 
 def _entry_side_valid(
@@ -185,21 +328,26 @@ def _candidate(
     source: str,
     protected_price: float,
     confirmation_time: str,
-    eq: float,
+    eq: float | None,
+    tspot: dict[str, float],
     entry_price: float,
     direction: str,
     pre_open_bars: list[dict],
     detail: dict | None = None,
 ) -> dict[str, Any]:
+    eq_cover = _eq_covers(protected_price, eq=eq, direction=direction)
+    tspot_cover = _tspot_covers(protected_price, tspot=tspot, direction=direction)
     return {
         "source": source,
         "protected_swing": float(protected_price),
         "confirmation_time": confirmation_time,
-        "eq_valid": _eq_valid(
-            float(protected_price),
-            eq=eq,
-            direction=direction,
-        ),
+        "eq_available": eq is not None,
+        "eq_covers": eq_cover,
+        "tspot_covers": tspot_cover,
+        # The video permits contextual flexibility around EQ. Therefore EQ is
+        # not a hard binary veto: a swing is geometrically valid if it protects
+        # either the directional wick EQ or the full expected T-Spot wick zone.
+        "geometry_valid": eq_cover or tspot_cover,
         "entry_side_valid": _entry_side_valid(
             float(protected_price),
             entry_price=entry_price,
@@ -217,10 +365,11 @@ def _candidate(
 
 def _select_protected_swing(
     *,
-    c2_bars: list[dict],
+    qualifying_bars: list[dict],
     csd_event: dict,
     direction: str,
-    eq: float,
+    eq: float | None,
+    tspot: dict[str, float],
     entry_price: float,
 ) -> tuple[dict | None, list[dict]]:
     candidates: list[dict] = []
@@ -234,9 +383,10 @@ def _select_protected_swing(
                 protected_price=csd_protected,
                 confirmation_time=csd_confirmation,
                 eq=eq,
+                tspot=tspot,
                 entry_price=entry_price,
                 direction=direction,
-                pre_open_bars=c2_bars,
+                pre_open_bars=qualifying_bars,
                 detail={
                     "raid_time": csd_event.get("raid_time"),
                     "csd_threshold": csd_event.get("csd_threshold"),
@@ -246,7 +396,7 @@ def _select_protected_swing(
 
     if csd_confirmation is not None:
         csd_confirmation_dt = _dt(csd_confirmation)
-        for continuation in _find_ranges(c2_bars, direction):
+        for continuation in _find_ranges(qualifying_bars, direction):
             source_time = continuation.get("source_start_time")
             confirmation_time = continuation.get("confirmation_time")
             protected = continuation.get("protected_swing")
@@ -265,9 +415,10 @@ def _select_protected_swing(
                     protected_price=float(protected),
                     confirmation_time=confirmation_time,
                     eq=eq,
+                    tspot=tspot,
                     entry_price=entry_price,
                     direction=direction,
-                    pre_open_bars=c2_bars,
+                    pre_open_bars=qualifying_bars,
                     detail={
                         "source_start_time": source_time,
                         "source_end_time": continuation.get("source_end_time"),
@@ -280,13 +431,16 @@ def _select_protected_swing(
     valid = [
         item
         for item in candidates
-        if item["eq_valid"]
+        if item["geometry_valid"]
         and item["entry_side_valid"]
         and item["intact_before_open"]
     ]
     if not valid:
         return None, candidates
 
+    # Once geometry is valid, prefer the most recently confirmed protected
+    # structure, matching the video's continuation logic rather than simply
+    # choosing the tightest numerical stop.
     selected = max(
         valid,
         key=lambda item: (
@@ -297,14 +451,142 @@ def _select_protected_swing(
     return selected, candidates
 
 
-def _htf_std_minus_two(
+def _three_bar_pivot(
+    bars: list[dict],
+    index: int,
+    *,
+    field: str,
+    find_low: bool,
+) -> bool:
+    if index <= 0 or index >= len(bars) - 1:
+        return False
+
+    value = float(bars[index][field])
+    left = float(bars[index - 1][field])
+    right = float(bars[index + 1][field])
+    return value < left and value < right if find_low else value > left and value > right
+
+
+def _projection_structure_anchor(
+    ltf_bars: list[dict],
+    *,
+    direction: str,
+    c2: dict,
+    c2_end_time: datetime,
+    htf_duration: timedelta,
+) -> dict[str, Any] | None:
+    """Translate the Pine structural projection-anchor search."""
+    c2_start = _dt(c2["time"])
+    c2_extreme = float(c2["high"] if direction == "bearish" else c2["low"])
+    extreme_field = "high" if direction == "bearish" else "low"
+
+    inside_c2 = [
+        bar
+        for bar in ltf_bars
+        if c2_start <= _dt(bar["time"]) < c2_end_time
+    ]
+    extreme_candidates = [
+        bar
+        for bar in inside_c2
+        if (
+            float(bar[extreme_field]) >= c2_extreme
+            if direction == "bearish"
+            else float(bar[extreme_field]) <= c2_extreme
+        )
+    ]
+    if not extreme_candidates:
+        return None
+
+    # Pine scans newest -> oldest and stops on the first bar containing the
+    # C2 extreme, so use the latest matching LTF bar.
+    extreme_bar = max(extreme_candidates, key=lambda bar: _dt(bar["time"]))
+    extreme_time = _dt(extreme_bar["time"])
+    search_start = c2_start - htf_duration
+
+    window = [
+        bar
+        for bar in ltf_bars
+        if search_start <= _dt(bar["time"]) < extreme_time
+    ]
+    if len(window) < 3:
+        return None
+
+    field = "low" if direction == "bearish" else "high"
+    find_low = direction == "bearish"
+    pivots = [
+        window[index]
+        for index in range(1, len(window) - 1)
+        if _three_bar_pivot(window, index, field=field, find_low=find_low)
+    ]
+    if not pivots:
+        return None
+
+    # Same as Pine's first hit while scanning backward: closest prior pivot.
+    anchor_bar = max(pivots, key=lambda bar: _dt(bar["time"]))
+    anchor = float(anchor_bar[field])
+    return {
+        "price": anchor,
+        "time": anchor_bar["time"],
+        "extreme_price": c2_extreme,
+        "extreme_time": extreme_bar["time"],
+    }
+
+
+def _fractal_structure_std_minus_two(
+    ltf_bars: list[dict],
+    *,
+    direction: str,
+    c2: dict,
+    c2_end_time: datetime,
+    htf_duration: timedelta,
+    entry_price: float,
+    htf_timeframe: str,
+) -> dict[str, Any] | None:
+    anchor = _projection_structure_anchor(
+        ltf_bars,
+        direction=direction,
+        c2=c2,
+        c2_end_time=c2_end_time,
+        htf_duration=htf_duration,
+    )
+    if anchor is None:
+        return None
+
+    zero = float(anchor["price"])
+    extreme = float(anchor["extreme_price"])
+    range_size = abs(extreme - zero)
+    if range_size <= 0:
+        return None
+
+    target = zero - 2.0 * range_size if direction == "bearish" else zero + 2.0 * range_size
+    directionally_valid = target < entry_price if direction == "bearish" else target > entry_price
+    if not directionally_valid:
+        return None
+
+    return {
+        "label": "STD_-2",
+        "timeframe": htf_timeframe,
+        "zero_reference": zero,
+        "one_reference": extreme,
+        "range_size": range_size,
+        "multiplier": -2.0,
+        "price": target,
+        "source": "TV_FRACTAL_STRUCTURE_STD",
+        "structure_anchor_time": anchor["time"],
+        "c2_extreme_time": anchor["extreme_time"],
+    }
+
+
+def _csd_std_minus_two(
     htf_closed_bars: list[dict],
     *,
     direction: str,
     pivot_window: int,
     confirmation_bars: int,
     entry_price: float,
+    htf_timeframe: str,
 ) -> dict[str, Any] | None:
+    """Keep the older CSD-range target explicit for comparison/backward compatibility."""
     event = _directional_csd(
         htf_closed_bars,
         direction=direction,
@@ -335,23 +617,18 @@ def _htf_std_minus_two(
 
     return {
         "label": "STD_-2",
-        "timeframe": None,
+        "timeframe": htf_timeframe,
         "zero_reference": threshold,
         "protected_extreme": protected,
         "range_size": range_size,
         "multiplier": 2.0,
         "price": target,
-        "source": "HTF_CSD_STANDARD_DEVIATION",
+        "source": "LEGACY_HTF_CSD_STANDARD_DEVIATION",
         "source_confirmation_time": event.get("confirmation_time"),
     }
 
 
-def _risk_reward(
-    *,
-    entry_price: float,
-    stop_price: float,
-    target_price: float,
-) -> float | None:
+def _risk_reward(*, entry_price: float, stop_price: float, target_price: float) -> float | None:
     risk = abs(entry_price - stop_price)
     reward = abs(target_price - entry_price)
     if risk <= 0:
@@ -393,13 +670,13 @@ def _position_outcome(
             return {
                 "status": "TARGET_HIT",
                 "time": bar["time"],
-                "reason": "HTF STD -2 objective was reached.",
+                "reason": "TV fractal structural STD -2 objective was reached.",
             }
 
     return {
         "status": "ACTIVE",
         "time": None,
-        "reason": "Neither stop nor HTF STD -2 target has been reached.",
+        "reason": "Neither stop nor TV fractal structural STD -2 target has been reached.",
     }
 
 
@@ -418,12 +695,9 @@ def _trail_candidate(
         confirmation_time = continuation.get("confirmation_time")
         if protected is None or confirmation_time is None:
             continue
+
         protected = float(protected)
-        tighter = (
-            protected > initial_stop
-            if direction == "bullish"
-            else protected < initial_stop
-        )
+        tighter = protected > initial_stop if direction == "bullish" else protected < initial_stop
         if not tighter:
             continue
         if not _swing_intact_after(
@@ -433,6 +707,7 @@ def _trail_candidate(
             direction=direction,
         ):
             continue
+
         candidates.append(
             {
                 "protected_swing": protected,
@@ -457,8 +732,9 @@ def evaluate_positional_from_bars(
     pivot_window: int = 2,
     confirmation_bars: int = 10,
     symbol: str | None = None,
+    min_tick: float = 1e-12,
 ) -> dict[str, Any]:
-    """Evaluate a positional entry from already-fetched chronological OHLC bars."""
+    """Evaluate C3/C4 positional entry from chronological HTF/LTF OHLC bars."""
 
     direction = direction.strip().lower()
     htf_timeframe = htf_timeframe.strip().upper()
@@ -471,53 +747,81 @@ def evaluate_positional_from_bars(
         raise ValueError(f"Unsupported positional HTF: {htf_timeframe}")
     if ltf_timeframe != expected_ltf:
         raise ValueError(
-            f"{htf_timeframe} positional entries require {expected_ltf}, "
-            f"not {ltf_timeframe}"
+            f"{htf_timeframe} positional entries require {expected_ltf}, not {ltf_timeframe}"
         )
     if pivot_window < 1 or pivot_window > 10:
         raise ValueError("pivot_window must be between 1 and 10")
     if confirmation_bars < 1:
         raise ValueError("confirmation_bars must be >= 1")
+    if min_tick <= 0:
+        raise ValueError("min_tick must be > 0")
 
     states = ["IDLE"]
     htf = _sort_bars(htf_bars)
     ltf = _sort_bars(ltf_bars)
 
-    if len(htf) < 2:
+    if len(htf) < 3:
         return _base_result(
             symbol=symbol,
             direction=direction,
             htf_timeframe=htf_timeframe,
             ltf_timeframe=ltf_timeframe,
-            status="WAIT_HTF_CANDLE_CLOSE",
+            status="WAIT_HTF_FRACTAL",
             state_trace=states,
-            reason="At least one closed HTF candle and the next HTF open are required.",
+            reason="C1, a closed qualifying HTF candle, and the next HTF open are required.",
             fallback_to_unicorn=True,
         )
 
-    c2 = htf[-2]
-    c3 = htf[-1]
-    c2_time = _dt(c2["time"])
-    c3_time = _dt(c3["time"])
-    if c3_time <= c2_time:
+    stage = _resolve_fractal_stage(htf, direction=direction)
+    if stage is None:
+        return _base_result(
+            symbol=symbol,
+            direction=direction,
+            htf_timeframe=htf_timeframe,
+            ltf_timeframe=ltf_timeframe,
+            status="WAIT_HTF_FRACTAL",
+            state_trace=states,
+            reason=(
+                "No valid LONDRES C2 sweep/reclaim or surviving C3 continuation "
+                "exists for the requested direction."
+            ),
+            fallback_to_unicorn=True,
+        )
+
+    c1 = stage["model_c1"]
+    model_c2 = stage["model_c2"]
+    qualifying = stage["qualifying_candle"]
+    next_candle = stage["next_candle"]
+
+    qualifying_start = _dt(qualifying["time"])
+    next_open_time = _dt(next_candle["time"])
+    model_c2_start = _dt(model_c2["time"])
+    if next_open_time <= qualifying_start:
         raise ValueError("HTF bars must have strictly increasing timestamps")
 
-    c2_high = float(c2["high"])
-    c2_low = float(c2["low"])
-    entry_price = float(c3["open"])
-    if c2_high <= c2_low:
-        raise ValueError("qualifying HTF candle must have high > low")
+    htf_duration = next_open_time - qualifying_start
+    if htf_duration.total_seconds() <= 0:
+        raise ValueError("HTF duration must be positive")
 
-    states.extend(["HTF_SETUP_FOUND", "HTF_CANDLE_CLOSED"])
-    eq = (c2_high + c2_low) / 2.0
+    model_c2_end = model_c2_start + htf_duration
+    entry_price = float(next_candle["open"])
+    eq = _wick_eq_price(direction, qualifying, min_tick=min_tick)
+    tspot = _tspot_zone(direction, qualifying)
 
-    pre_open = [bar for bar in ltf if _dt(bar["time"]) < c3_time]
-    c2_ltf = [
+    states.extend(
+        [
+            "HTF_FRACTAL_CONFIRMED",
+            f"{stage['stage']}_CLOSED",
+        ]
+    )
+
+    pre_open = [bar for bar in ltf if _dt(bar["time"]) < next_open_time]
+    qualifying_ltf = [
         bar
         for bar in pre_open
-        if c2_time <= _dt(bar["time"]) < c3_time
+        if qualifying_start <= _dt(bar["time"]) < next_open_time
     ]
-    if len(c2_ltf) < 2:
+    if len(qualifying_ltf) < 2:
         result = _base_result(
             symbol=symbol,
             direction=direction,
@@ -525,10 +829,10 @@ def evaluate_positional_from_bars(
             ltf_timeframe=ltf_timeframe,
             status="WAIT_LTF_DATA",
             state_trace=states,
-            reason="Insufficient LTF bars inside the qualifying HTF candle.",
+            reason="Insufficient mapped-LTF bars inside the qualifying HTF candle.",
             fallback_to_unicorn=True,
         )
-        result["equilibrium"] = eq
+        result.update({"equilibrium": eq, "tspot": tspot, "fractal_stage": stage["stage"]})
         return result
 
     csd_event = _directional_csd(
@@ -545,28 +849,28 @@ def evaluate_positional_from_bars(
             ltf_timeframe=ltf_timeframe,
             status="WAIT_LTF_CSD",
             state_trace=states,
-            reason="No directional lower-timeframe CSD was confirmed before the next HTF open.",
+            reason="No directional mapped-LTF CSD was confirmed before the next HTF open.",
             fallback_to_unicorn=True,
         )
-        result["equilibrium"] = eq
+        result.update({"equilibrium": eq, "tspot": tspot, "fractal_stage": stage["stage"]})
         return result
 
     raid_time = csd_event.get("raid_time")
     csd_confirmation_time = csd_event.get("confirmation_time")
     csd_protected = _protected_price(csd_event, direction)
-    csd_inside_c2 = (
+    csd_inside_qualifying = (
         raid_time is not None
         and csd_confirmation_time is not None
-        and c2_time <= _dt(raid_time) < c3_time
-        and c2_time <= _dt(csd_confirmation_time) < c3_time
+        and qualifying_start <= _dt(raid_time) < next_open_time
+        and qualifying_start <= _dt(csd_confirmation_time) < next_open_time
         and csd_protected is not None
         and _price_created_inside_candle(
-            c2_ltf,
+            qualifying_ltf,
             protected_price=csd_protected,
             direction=direction,
         )
     )
-    if not csd_inside_c2:
+    if not csd_inside_qualifying:
         result = _base_result(
             symbol=symbol,
             direction=direction,
@@ -575,22 +879,29 @@ def evaluate_positional_from_bars(
             status="WAIT_CSD_INSIDE_QUALIFYING_CANDLE",
             state_trace=states,
             reason=(
-                "The latest directional LTF CSD was not fully formed inside the "
-                "closed HTF candle."
+                "The directional mapped-LTF CSD was not fully formed inside the "
+                f"closed {stage['stage']} candle before {stage['entry_label']}."
             ),
             fallback_to_unicorn=True,
         )
-        result["equilibrium"] = eq
-        result["csd"] = csd_event
+        result.update(
+            {
+                "equilibrium": eq,
+                "tspot": tspot,
+                "fractal_stage": stage["stage"],
+                "csd": csd_event,
+            }
+        )
         return result
 
     states.append("CSD_CONFIRMED")
 
     selected, candidates = _select_protected_swing(
-        c2_bars=c2_ltf,
+        qualifying_bars=qualifying_ltf,
         csd_event=csd_event,
         direction=direction,
         eq=eq,
+        tspot=tspot,
         entry_price=entry_price,
     )
     if selected is None:
@@ -602,14 +913,16 @@ def evaluate_positional_from_bars(
             status="WAIT_VALID_PROTECTED_SWING",
             state_trace=states,
             reason=(
-                "Protected swings exist only if they remain intact, sit on the "
-                "correct side of the next HTF open, and structurally cover C2 EQ."
+                "No intact protected swing on the correct side of the entry "
+                "protects the qualifying candle's directional wick EQ or T-Spot."
             ),
             fallback_to_unicorn=True,
         )
         result.update(
             {
                 "equilibrium": eq,
+                "tspot": tspot,
+                "fractal_stage": stage["stage"],
                 "csd": csd_event,
                 "protected_swing_candidates": candidates,
             }
@@ -618,48 +931,64 @@ def evaluate_positional_from_bars(
 
     states.extend(["PROTECTED_SWING_FOUND", "POSITIONAL_ARMED"])
 
-    target = _htf_std_minus_two(
+    structure_target = _fractal_structure_std_minus_two(
+        ltf,
+        direction=direction,
+        c2=model_c2,
+        c2_end_time=model_c2_end,
+        htf_duration=htf_duration,
+        entry_price=entry_price,
+        htf_timeframe=htf_timeframe,
+    )
+    legacy_csd_target = _csd_std_minus_two(
         htf[:-1],
         direction=direction,
         pivot_window=pivot_window,
         confirmation_bars=confirmation_bars,
         entry_price=entry_price,
+        htf_timeframe=htf_timeframe,
     )
-    if target is None:
+
+    if structure_target is None:
         result = _base_result(
             symbol=symbol,
             direction=direction,
             htf_timeframe=htf_timeframe,
             ltf_timeframe=ltf_timeframe,
-            status="WAIT_HTF_STD_TARGET",
+            status="WAIT_TV_FRACTAL_STD_TARGET",
             state_trace=states,
             reason=(
-                "The positional structure is armed, but no directionally valid "
-                "HTF CSD range is available for the STD -2 target."
+                "The positional structure is armed, but the Pine structural "
+                "anchor required for the fractal STD -2 target is unavailable."
             ),
             fallback_to_unicorn=True,
         )
         result.update(
             {
                 "equilibrium": eq,
+                "tspot": tspot,
+                "fractal_stage": stage["stage"],
                 "csd": csd_event,
                 "selected_protected_swing": selected,
                 "protected_swing_candidates": candidates,
+                "target_models": {
+                    "tv_fractal_structure": None,
+                    "legacy_csd": legacy_csd_target,
+                },
             }
         )
         return result
 
-    target["timeframe"] = htf_timeframe
     stop_price = float(selected["protected_swing"])
-    target_price = float(target["price"])
+    target_price = float(structure_target["price"])
     rr = _risk_reward(
         entry_price=entry_price,
         stop_price=stop_price,
         target_price=target_price,
     )
 
-    states.extend(["C3_OPEN", "POSITIONAL_ACTIVE"])
-    post_open = [bar for bar in ltf if _dt(bar["time"]) >= c3_time]
+    states.extend([stage["entry_label"], "POSITIONAL_ACTIVE"])
+    post_open = [bar for bar in ltf if _dt(bar["time"]) >= next_open_time]
     outcome = _position_outcome(
         post_open,
         direction=direction,
@@ -692,6 +1021,8 @@ def evaluate_positional_from_bars(
         entry_gate_passed = True
         invalidated = False
 
+    follow_through = _follow_through_failure(qualifying, next_candle, direction)
+
     return {
         "symbol": symbol,
         "direction": direction,
@@ -704,32 +1035,53 @@ def evaluate_positional_from_bars(
         "entry_gate_passed": entry_gate_passed,
         "entry_model_invalidated": invalidated,
         "fallback_to_unicorn": False,
-        "qualifying_htf_candle": {
-            "time": c2["time"],
-            "open": float(c2["open"]),
-            "high": c2_high,
-            "low": c2_low,
-            "close": float(c2["close"]),
-            "equilibrium": eq,
+        "fractal_stage": stage["stage"],
+        "entry_candle_label": stage["entry_label"],
+        "fractal_context": {
+            "c1": c1,
+            "c2": model_c2,
+            "qualifying_candle": qualifying,
+            "prior_follow_through": stage["prior_follow_through"],
+            "observed_next_candle_follow_through": follow_through,
         },
+        "qualifying_htf_candle": {
+            "time": qualifying["time"],
+            "open": float(qualifying["open"]),
+            "high": float(qualifying["high"]),
+            "low": float(qualifying["low"]),
+            "close": float(qualifying["close"]),
+            "directional_wick_equilibrium": eq,
+            "tspot": tspot,
+        },
+        # Backward-compatible field name; value now means directional wick EQ.
+        "equilibrium": eq,
+        "tspot": tspot,
         "next_htf_candle_open": {
-            "time": c3["time"],
+            "time": next_candle["time"],
             "price": entry_price,
+            "label": stage["entry_label"],
         },
         "csd": csd_event,
         "protected_swing_candidates": candidates,
         "selected_protected_swing": selected,
         "exact_order_price": entry_price,
         "exact_order_price_defined": True,
-        "entry_rule": "NEXT_HTF_OPEN_AFTER_VALID_C2_PROTECTED_SWING",
+        "entry_rule": (
+            "NEXT_HTF_OPEN_AFTER_VALID_FRACTAL_CLOSURE_CSD_AND_PROTECTED_SWING"
+        ),
         "stop_reference": stop_price,
         "stop_rule": (
             "Below selected protected swing"
             if direction == "bullish"
             else "Above selected protected swing"
         ),
-        "target": target,
-        "target_rule": "HTF_CSD_STD_-2",
+        "target": structure_target,
+        "target_rule": "TV_FRACTAL_STRUCTURE_STD_-2",
+        "target_models": {
+            "tv_fractal_structure": structure_target,
+            "legacy_csd": legacy_csd_target,
+        },
+        "selected_target_model": "TV_FRACTAL_STRUCTURE_STD",
         "risk_reward": rr,
         "position_outcome": outcome,
         "trail_stop_candidate": trail,
@@ -741,9 +1093,9 @@ def evaluate_positional_from_bars(
         "execution_allowed": False,
         "order_placement": False,
         "reason": (
-            "Previous HTF candle closed with a directional LTF CSD and a valid "
-            "protected swing relative to EQ; the positional signal is the next "
-            "HTF candle open."
+            "Exact HTF fractal context is valid, the mapped-LTF CSD and protected "
+            f"swing existed before {stage['entry_label']}, and the stop protects "
+            "the directional wick EQ/T-Spot geometry."
         ),
     }
 
@@ -756,6 +1108,7 @@ def evaluate_positional_entry(
     count: int = 500,
     pivot_window: int = 2,
     confirmation_bars: int = 10,
+    min_tick: float = 1e-12,
 ) -> dict[str, Any]:
     """Fetch the mapped HTF/LTF pair from cTrader and evaluate the model."""
 
@@ -779,4 +1132,5 @@ def evaluate_positional_entry(
         pivot_window=pivot_window,
         confirmation_bars=confirmation_bars,
         symbol=symbol,
+        min_tick=min_tick,
     )
