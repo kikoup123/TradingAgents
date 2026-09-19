@@ -503,10 +503,13 @@ def _projection_structure_anchor(
     extreme_time = _dt(extreme_bar["time"])
     search_start = c2_start - htf_duration
 
+    # Include the extreme bar as the right-hand neighbour of a pivot that
+    # formed immediately before the C2 extreme. Pine's low[k-1]/high[k-1]
+    # check has access to that bar even though the anchor itself must precede it.
     window = [
         bar
         for bar in ltf_bars
-        if search_start <= _dt(bar["time"]) < extreme_time
+        if search_start <= _dt(bar["time"]) <= extreme_time
     ]
     if len(window) < 3:
         return None
@@ -516,7 +519,8 @@ def _projection_structure_anchor(
     pivots = [
         window[index]
         for index in range(1, len(window) - 1)
-        if _three_bar_pivot(window, index, field=field, find_low=find_low)
+        if _dt(window[index]["time"]) < extreme_time
+        and _three_bar_pivot(window, index, field=field, find_low=find_low)
     ]
     if not pivots:
         return None
