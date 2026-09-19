@@ -56,9 +56,6 @@ jobs:
       - name: Install ruff
         run: pip install "ruff>=0.15"
       - name: Lint the repository
-        # Temporary diagnostic for positional-entry import formatting.
-        run: |
-          cp tradingagents/dataflows/ctrader_positional.py /tmp/positional-before.py
-          ruff check tradingagents/dataflows/ctrader_positional.py --fix || true
-          diff -u /tmp/positional-before.py tradingagents/dataflows/ctrader_positional.py || true
-          ruff check .
+        # The repo is fully clean under the strict select, so we lint everything
+        # (generated results/ is excluded via pyproject extend-exclude).
+        run: ruff check .
