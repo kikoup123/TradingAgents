@@ -219,42 +219,36 @@ def test_nearer_protected_swing_below_bearish_eq_is_rejected_for_farther_valid_s
 
 def test_no_eq_valid_protected_swing_falls_back_to_normal_unicorn_engine() -> None:
     htf = bearish_htf()
-    # The H1 candle contains an earlier 120 high, so EQ is 106 while the later
-    # CSD protected high remains 104. No stop candidate structurally covers EQ.
-    htf[-2].update({"high": 120, "low": 92})
+    # An early C2 excursion sets a high of 130 and a low of 90, so C2 EQ is
+    # 110. The later bearish CSD forms from a local 105 pivot and leaves a
+    # protected high at 108, which is below EQ and therefore not a valid
+    # positional stop.
+    htf[-2].update({"high": 130, "low": 90})
 
     ltf = [
-        bar("2026-09-19T10:35:00+00:00", 99, 101, 98, 100),
-        bar("2026-09-19T10:40:00+00:00", 100, 102, 99, 101),
-        bar("2026-09-19T10:45:00+00:00", 101, 103, 100, 102),
-        bar("2026-09-19T10:50:00+00:00", 102, 102.5, 100, 101),
-        bar("2026-09-19T10:55:00+00:00", 101, 102, 99, 100),
-        # Earlier C2 extreme not part of the later CSD protected swing.
-        bar("2026-09-19T11:00:00+00:00", 100, 120, 92, 95),
-        bar("2026-09-19T11:05:00+00:00", 95, 100, 94, 98),
-        bar("2026-09-19T11:10:00+00:00", 98, 101, 97, 100),
-        bar("2026-09-19T11:15:00+00:00", 100, 103, 98, 102),
-        bar("2026-09-19T11:20:00+00:00", 102, 104, 99, 103),
-        bar("2026-09-19T11:25:00+00:00", 103, 103.5, 98, 99),
-        bar("2026-09-19T11:30:00+00:00", 99, 102, 97, 98),
-        bar("2026-09-19T11:35:00+00:00", 98, 101, 96, 97),
-        bar("2026-09-19T11:40:00+00:00", 97, 100, 95, 96),
-        bar("2026-09-19T11:45:00+00:00", 96, 99, 94, 95),
-        bar("2026-09-19T11:50:00+00:00", 95, 98, 93, 94),
-        bar("2026-09-19T11:55:00+00:00", 94, 97, 92, 93),
+        # Older descending highs prevent the early C2 excursion from being the
+        # latest structural pivot used by the later CSD.
+        bar("2026-09-19T10:35:00+00:00", 134, 136, 132, 135),
+        bar("2026-09-19T10:40:00+00:00", 133, 135, 131, 132),
+        bar("2026-09-19T10:45:00+00:00", 132, 134, 130, 131),
+        bar("2026-09-19T10:50:00+00:00", 131, 133, 129, 130),
+        bar("2026-09-19T10:55:00+00:00", 130, 132, 128, 129),
+        bar("2026-09-19T11:00:00+00:00", 129, 130, 90, 120),
+        bar("2026-09-19T11:05:00+00:00", 120, 120, 105, 110),
+        bar("2026-09-19T11:10:00+00:00", 110, 110, 101, 103),
+        bar("2026-09-19T11:15:00+00:00", 103, 104, 100, 102),
+        # Local pivot high used as the BSL reference.
+        bar("2026-09-19T11:20:00+00:00", 102, 105, 101, 104),
+        bar("2026-09-19T11:25:00+00:00", 104, 104, 101, 102),
+        # Raid 105 and confirm bearish delivery on the next bar.
+        bar("2026-09-19T11:30:00+00:00", 102, 108, 101, 104),
+        bar("2026-09-19T11:35:00+00:00", 104, 106, 99, 100),
+        bar("2026-09-19T11:40:00+00:00", 100, 107, 98, 103),
+        bar("2026-09-19T11:45:00+00:00", 103, 106, 97, 98),
+        bar("2026-09-19T11:50:00+00:00", 98, 104, 95, 96),
+        bar("2026-09-19T11:55:00+00:00", 96, 103, 93, 94),
         bar("2026-09-19T12:00:00+00:00", 97, 98, 90, 91),
     ]
-
-    # Replace the pre-C2 structure with a clean local pivot and late bearish CSD
-    # whose protected high is below 106.
-    ltf[2] = bar("2026-09-19T10:45:00+00:00", 101, 103, 100, 102)
-    ltf[3] = bar("2026-09-19T10:50:00+00:00", 102, 102, 99, 100)
-    ltf[4] = bar("2026-09-19T10:55:00+00:00", 100, 101, 98, 99)
-    ltf[7] = bar("2026-09-19T11:10:00+00:00", 98, 102, 97, 101)
-    ltf[8] = bar("2026-09-19T11:15:00+00:00", 101, 103, 99, 102)
-    ltf[9] = bar("2026-09-19T11:20:00+00:00", 102, 104, 100, 103)
-    ltf[10] = bar("2026-09-19T11:25:00+00:00", 103, 105, 101, 102)
-    ltf[11] = bar("2026-09-19T11:30:00+00:00", 102, 104, 98, 99)
 
     result = evaluate_positional_from_bars(
         htf,
@@ -266,10 +260,12 @@ def test_no_eq_valid_protected_swing_falls_back_to_normal_unicorn_engine() -> No
 
     assert result["entry_model_confirmed"] is False
     assert result["fallback_to_unicorn"] is True
-    assert result["status"] in {
-        "WAIT_VALID_PROTECTED_SWING",
-        "WAIT_CSD_INSIDE_QUALIFYING_CANDLE",
-    }
+    assert result["status"] == "WAIT_VALID_PROTECTED_SWING"
+    assert result["equilibrium"] == 110
+    assert all(
+        candidate["eq_valid"] is False
+        for candidate in result["protected_swing_candidates"]
+    )
 
 
 def test_same_engine_supports_c4_continuation_entry() -> None:
