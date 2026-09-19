@@ -172,6 +172,7 @@ def test_exact_c2_sweep_reclaim_rules() -> None:
     assert _c2_direction(bullish_c1, bullish_c2) == "bullish"
 
     no_reclaim = dict(bearish_c2)
+    no_reclaim["low"] = 100
     no_reclaim["close"] = 105
     assert _c2_direction(bearish_c1, no_reclaim) is None
 
@@ -331,7 +332,9 @@ def test_valid_c3_closure_can_arm_c4_open() -> None:
 
 def test_failed_c3_does_not_arm_c4() -> None:
     htf = c4_htf()
-    htf[-2]["high"] = 111
+    # Violate the original C2 high without letting the failed C3 become a new
+    # bearish C2 sweep/reclaim or an opposite bullish setup.
+    htf[-2].update({"high": 111, "low": 95, "close": 110.5})
 
     assert _resolve_fractal_stage(htf, direction="bearish") is None
 
