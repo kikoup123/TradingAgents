@@ -16,6 +16,9 @@ from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
     get_cashflow,
+    get_ctrader_bars,
+    get_ctrader_smt,
+    get_ctrader_csd,
     get_fundamentals,
     get_global_news,
     get_income_statement,
@@ -214,6 +217,10 @@ class TradingAgentsGraph:
                 [
                     # Core stock data tools
                     get_stock_data,
+                    # FP Markets broker-native cTrader candles
+                    get_ctrader_bars,
+                    get_ctrader_smt,
+                    get_ctrader_csd,
                     # Technical indicators
                     get_indicators,
                     # Deterministic verification snapshot (bound to the analyst

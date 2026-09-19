@@ -8,6 +8,11 @@ from langchain_core.messages import HumanMessage, RemoveMessage
 
 # Import tools from separate utility files
 from tradingagents.agents.utils.core_stock_tools import get_stock_data
+from tradingagents.agents.utils.ctrader_tools import get_ctrader_bars
+from tradingagents.agents.utils.ctrader_smt_tools import get_ctrader_smt
+from tradingagents.agents.utils.ctrader_csd_tools import get_ctrader_csd
+from tradingagents.agents.utils.ctrader_entry_tools import get_ctrader_ltf_continuation
+from tradingagents.agents.utils.ctrader_master_setup_tools import get_ctrader_master_setup
 from tradingagents.agents.utils.fundamental_data_tools import (
     get_balance_sheet,
     get_cashflow,
@@ -28,6 +33,11 @@ from tradingagents.agents.utils.technical_indicators_tools import get_indicators
 # import them from one place, plus the instrument/language helpers defined below.
 __all__ = [
     "get_stock_data",
+    "get_ctrader_bars",
+    "get_ctrader_smt",
+    "get_ctrader_csd",
+    "get_ctrader_ltf_continuation",
+    "get_ctrader_master_setup",
     "get_indicators",
     "get_fundamentals",
     "get_balance_sheet",

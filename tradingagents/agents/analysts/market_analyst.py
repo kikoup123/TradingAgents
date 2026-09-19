@@ -1,11 +1,15 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
+    get_ctrader_bars,
+    get_ctrader_smt,
+    get_ctrader_csd,
     get_indicators,
     get_instrument_context_from_state,
     get_language_instruction,
     get_stock_data,
     get_verified_market_snapshot,
+    get_ctrader_master_setup,
 )
 
 
@@ -17,6 +21,8 @@ def create_market_analyst(llm):
 
         tools = [
             get_stock_data,
+            get_ctrader_bars,
+            get_ctrader_master_setup,
             get_indicators,
             get_verified_market_snapshot,
         ]
@@ -46,9 +52,76 @@ Volatility Indicators:
 Volume-Based Indicators:
 - vwma: VWMA: A moving average weighted by volume. Usage: Confirm trends by integrating price action with volume data. Tips: Watch for skewed results from volume spikes; use in combination with other volume analyses.
 
-- Select indicators that provide diverse and complementary information. Avoid redundancy (e.g., do not select both rsi and stochrsi). Also briefly explain why they are suitable for the given market context. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names.
+- Select indicators that provide diverse and complementary information. Avoid redundancy (e.g., do not select both rsi and stochrsi). Also briefly explain why they are suitable for the given market context. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. For ordinary equities, call get_stock_data before get_indicators when indicator calculations require that stock-data workflow. For XAUUSD, NASDAQ/NQ/US100, and US500/ES/SPX500, use get_ctrader_bars first and treat FP Markets cTrader candles as the primary price source. Do not replace broker-native cTrader prices with Yahoo-derived proxies.
 
-Before writing the final report, call get_verified_market_snapshot for this ticker and the current date, and treat it as the source of truth for any exact OHLCV, price-level, or indicator-value claim. If another tool's output conflicts with the verified snapshot, flag the discrepancy rather than inventing a reconciled number. Do not claim historical validation, support/resistance bounces, or exact percentage moves unless they are directly supported by tool output with concrete dates and prices.
+
+For XAUUSD, NASDAQ/NQ/US100, and US500/ES/SPX500, use get_ctrader_bars
+as the primary source for broker-native intraday and multi-timeframe OHLCV
+data. For ICT/SMC analysis, request the relevant higher and lower timeframes
+rather than relying only on daily stock data. Available cTrader periods are
+M1, M3, M5, M15, M30, H1, H4, D1, and W1.
+
+When analyzing these instruments, explicitly examine:
+- HTF directional context and dealing range
+- external and internal liquidity
+- BSL/SSL raids
+- displacement and delivery shifts
+- CSD/CISD confirmation where supported by the candles
+- SMT relationships when multiple instruments are available
+- MMXM / accumulation-manipulation-distribution structure
+- H4/H1 context with M15/M5 execution context when appropriate
+
+Do not invent ICT confirmations that are not visible in the retrieved candles.
+
+For NASDAQ/US TECH 100 and US500 analysis, use get_ctrader_smt to
+deterministically evaluate SMT divergence from synchronized FP Markets
+candles. Do not infer SMT visually when the deterministic SMT tool is
+available.
+
+SMT interpretation rules:
+- Bearish SMT: one correlated index forms a higher swing high while the
+  other fails to form a corresponding higher swing high.
+- Bullish SMT: one correlated index forms a lower swing low while the
+  other fails to form a corresponding lower swing low.
+- If both markets make the same structural extreme, report NO SMT.
+- SMT is contextual evidence only and is never sufficient by itself for
+  a trade entry.
+- Do not manufacture SMT simply because the two markets moved by
+  different percentages.
+
+For this trading model, preserve this confirmation hierarchy:
+1. Higher-timeframe directional/dealing-range context.
+2. External or internal liquidity event / raid.
+3. SMT evidence when applicable.
+4. CSD/CISD or order-flow delivery shift.
+5. Lower-timeframe continuation or execution confirmation.
+
+A missing step must be explicitly reported rather than assumed.
+
+Use get_ctrader_csd whenever CSD/CISD or institutional order-flow control
+is material to the analysis. The deterministic tool result takes precedence
+over visual or language-model inference.
+
+CSD/order-flow rules:
+- A liquidity raid alone is not a reversal confirmation.
+- Bullish CSD requires the defined sell-side raid/reclaim sequence and a
+  candle BODY close through the deterministic CSD threshold.
+- Bearish CSD requires the inverse buy-side raid/reclaim sequence.
+- Wick-only threshold penetration is NOT confirmation.
+- CSD alone does not establish continuation control.
+- post_csd_iof must confirm before describing institutional continuation
+  control.
+- If current_orderflow_control ends in "_csd_only", explicitly state that
+  delivery shifted but continuation control is not yet confirmed.
+- If current_orderflow_control is "none" or "transition", do not manufacture
+  directional control.
+
+For an index SMT setup, SMT and CSD are separate gates. A valid SMT divergence
+does not replace CSD on the execution instrument.
+
+
+
+For ordinary equities, call get_verified_market_snapshot before the final report when exact OHLCV or indicator values need verification. For XAUUSD, NASDAQ/NQ/US100, and US500/ES/SPX500, do NOT use Yahoo-derived get_verified_market_snapshot as the price authority. FP Markets cTrader candles returned by get_ctrader_bars are the source of truth for exact broker-native prices and OHLCV. Do not substitute futures, index proxies, or Yahoo prices for those cTrader instruments. Do not claim historical validation or exact price behavior unless directly supported by the retrieved cTrader candles.
 
 Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
