@@ -8,13 +8,19 @@ from tradingagents.dataflows.ctrader_positional import (
 )
 
 
-def bar(time: str, o: float, h: float, l: float, c: float) -> dict:
+def bar(
+    time: str,
+    open_price: float,
+    high: float,
+    low: float,
+    close: float,
+) -> dict:
     return {
         "time": time,
-        "open": o,
-        "high": h,
-        "low": l,
-        "close": c,
+        "open": open_price,
+        "high": high,
+        "low": low,
+        "close": close,
     }
 
 
