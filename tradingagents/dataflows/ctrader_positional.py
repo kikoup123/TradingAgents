@@ -20,7 +20,6 @@ from tradingagents.dataflows.ctrader import BRIDGE_URL
 from tradingagents.dataflows.ctrader_csd import _find_bearish_csd, _find_bullish_csd
 from tradingagents.dataflows.ctrader_entry import _find_ranges
 
-
 FRACTAL_TIMEFRAME_PAIRS = {
     "W1": "H4",
     "D1": "H1",
