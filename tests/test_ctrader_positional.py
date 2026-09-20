@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tradingagents.dataflows.ctrader_positional as positional
 from tradingagents.dataflows.ctrader_positional import (
     FRACTAL_TIMEFRAME_PAIRS,
     _c2_direction,
@@ -224,6 +225,7 @@ def test_bearish_positional_uses_tspot_valid_swing_and_tv_structural_std() -> No
     assert result["target_rule"] == "TV_FRACTAL_STRUCTURE_STD_-2"
     assert "legacy_csd" in result["target_models"]
     assert result["status"] == "POSITIONAL_TARGET_HIT"
+    assert result["trail_stop_candidate"] is None
     assert result["execution_allowed"] is False
 
 
@@ -328,6 +330,36 @@ def test_valid_c3_closure_can_arm_c4_open() -> None:
     assert result["target"]["one_reference"] == 110
     assert result["target"]["price"] == 80
     assert "C4_OPEN" in result["state_trace"]
+
+
+def test_c4_can_use_csd_and_protected_swing_already_formed_in_c2(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        positional,
+        "_directional_csd",
+        lambda *args, **kwargs: {
+            "direction": "bearish",
+            "raid_time": "2026-09-19T10:00:00+00:00",
+            "confirmation_time": "2026-09-19T10:05:00+00:00",
+            "protected_high": 110.0,
+            "csd_threshold": 104.0,
+        },
+    )
+
+    result = positional.evaluate_positional_from_bars(
+        c4_htf(),
+        c4_ltf(),
+        direction="bearish",
+        htf_timeframe="H1",
+        pivot_window=1,
+    )
+
+    assert result["entry_model_confirmed"] is True
+    assert result["fractal_stage"] == "C3"
+    assert result["entry_candle_label"] == "C4_OPEN"
+    assert result["csd"]["confirmation_time"] == "2026-09-19T10:05:00+00:00"
+    assert result["selected_protected_swing"]["protected_swing"] == 110.0
 
 
 def test_failed_c3_does_not_arm_c4() -> None:
