@@ -15,6 +15,7 @@ from pathlib import Path
 
 from tradingagents.dataflows.ctrader_positional_validation import (
     validate_positional_history,
+    validate_positional_history_days,
 )
 
 
@@ -49,6 +50,32 @@ def main() -> None:
     parser.add_argument("--htf", default="H1")
     parser.add_argument("--htf-count", type=int, default=160)
     parser.add_argument("--ltf-count", type=int, default=2000)
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help=(
+            "Paginated calendar-day lookback. When supplied, this replaces "
+            "--htf-count/--ltf-count and can exceed the 2,000-bar limit."
+        ),
+    )
+    parser.add_argument(
+        "--end",
+        default=None,
+        help="Optional UTC ISO-8601 end time for --days mode.",
+    )
+    parser.add_argument(
+        "--warmup-days",
+        type=int,
+        default=None,
+        help="Optional warmup days before the validation window.",
+    )
+    parser.add_argument(
+        "--page-size",
+        type=int,
+        default=2000,
+        help="Bars per cTrader page in --days mode (maximum 2000).",
+    )
     parser.add_argument("--pivot-window", type=int, default=2)
     parser.add_argument("--confirmation-bars", type=int, default=10)
     parser.add_argument("--horizon", type=int, default=1)
@@ -66,16 +93,30 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    result = validate_positional_history(
-        symbol=args.symbol,
-        htf_timeframe=args.htf,
-        htf_count=args.htf_count,
-        ltf_count=args.ltf_count,
-        pivot_window=args.pivot_window,
-        confirmation_bars=args.confirmation_bars,
-        min_tick=args.min_tick,
-        outcome_horizon_htf_bars=args.horizon,
-    )
+    if args.days is not None:
+        result = validate_positional_history_days(
+            symbol=args.symbol,
+            htf_timeframe=args.htf,
+            days=args.days,
+            end_time=args.end,
+            warmup_days=args.warmup_days,
+            page_size=args.page_size,
+            pivot_window=args.pivot_window,
+            confirmation_bars=args.confirmation_bars,
+            min_tick=args.min_tick,
+            outcome_horizon_htf_bars=args.horizon,
+        )
+    else:
+        result = validate_positional_history(
+            symbol=args.symbol,
+            htf_timeframe=args.htf,
+            htf_count=args.htf_count,
+            ltf_count=args.ltf_count,
+            pivot_window=args.pivot_window,
+            confirmation_bars=args.confirmation_bars,
+            min_tick=args.min_tick,
+            outcome_horizon_htf_bars=args.horizon,
+        )
 
     if args.csv is not None:
         _write_csv(args.csv, result["records"])
@@ -87,6 +128,7 @@ def main() -> None:
             "ltf_timeframe": result["ltf_timeframe"],
             "coverage": result["coverage"],
             "summary": result["summary"],
+            "historical_fetch": result.get("historical_fetch"),
             "execution_allowed": result["execution_allowed"],
             "csv": str(args.csv) if args.csv is not None else None,
         }
