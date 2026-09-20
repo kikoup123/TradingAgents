@@ -144,16 +144,21 @@ def _find_bullish_csd(
     confirmed = []
     pending = []
 
-    for raid_index in range(pivot_window + 1, len(bars)):
-        prior = [
-            p for p in pivot_lows
-            if p < raid_index
-        ]
+    pivot_cursor = 0
+    latest_prior_pivot = None
 
-        if not prior:
+    for raid_index in range(pivot_window + 1, len(bars)):
+        while (
+            pivot_cursor < len(pivot_lows)
+            and pivot_lows[pivot_cursor] < raid_index
+        ):
+            latest_prior_pivot = pivot_lows[pivot_cursor]
+            pivot_cursor += 1
+
+        if latest_prior_pivot is None:
             continue
 
-        reference_index = prior[-1]
+        reference_index = latest_prior_pivot
         reference_low = bars[reference_index]["low"]
         raid = bars[raid_index]
 
@@ -274,16 +279,21 @@ def _find_bearish_csd(
     confirmed = []
     pending = []
 
-    for raid_index in range(pivot_window + 1, len(bars)):
-        prior = [
-            p for p in pivot_highs
-            if p < raid_index
-        ]
+    pivot_cursor = 0
+    latest_prior_pivot = None
 
-        if not prior:
+    for raid_index in range(pivot_window + 1, len(bars)):
+        while (
+            pivot_cursor < len(pivot_highs)
+            and pivot_highs[pivot_cursor] < raid_index
+        ):
+            latest_prior_pivot = pivot_highs[pivot_cursor]
+            pivot_cursor += 1
+
+        if latest_prior_pivot is None:
             continue
 
-        reference_index = prior[-1]
+        reference_index = latest_prior_pivot
         reference_high = bars[reference_index]["high"]
         raid = bars[raid_index]
 
