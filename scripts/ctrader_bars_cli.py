@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import sys
 import time
 from datetime import datetime, timezone
 
@@ -97,6 +98,9 @@ SYMBOL_ID = int(os.getenv(symbol_env_key))
 
 result = None
 symbol_digits = 2
+request_end_ms = None
+request_span_minutes = None
+request_stage = "initializing"
 
 client = Client(
     EndPoints.PROTOBUF_DEMO_HOST,
@@ -106,6 +110,11 @@ client = Client(
 
 
 def connected(client):
+    global request_stage
+
+    request_stage = "application_auth"
+    print("cTrader stage: connected -> application auth", file=sys.stderr)
+
     req = ProtoOAApplicationAuthReq()
     req.clientId = CLIENT_ID
     req.clientSecret = CLIENT_SECRET
@@ -114,14 +123,24 @@ def connected(client):
 
 def on_message(client, message):
     global result, symbol_digits
+    global request_end_ms, request_span_minutes, request_stage
 
     if message.payloadType == ProtoOAApplicationAuthRes().payloadType:
+        request_stage = "account_auth"
+        print("cTrader stage: application authenticated", file=sys.stderr)
+
         req = ProtoOAAccountAuthReq()
         req.ctidTraderAccountId = ACCOUNT_ID
         req.accessToken = ACCESS_TOKEN
         client.send(req)
 
     elif message.payloadType == ProtoOAAccountAuthRes().payloadType:
+        request_stage = "symbol_metadata"
+        print(
+            f"cTrader stage: account authenticated -> symbol {SYMBOL_ID}",
+            file=sys.stderr,
+        )
+
         req = ProtoOASymbolByIdReq()
         req.ctidTraderAccountId = ACCOUNT_ID
         req.symbolId.append(SYMBOL_ID)
@@ -136,6 +155,14 @@ def on_message(client, message):
             return
 
         symbol_digits = int(res.symbol[0].digits)
+        request_stage = "trendbars"
+        print(
+            (
+                "cTrader stage: symbol metadata received "
+                f"(digits={symbol_digits}) -> trendbars"
+            ),
+            file=sys.stderr,
+        )
 
         now_ms = int(time.time() * 1000)
 
@@ -145,12 +172,12 @@ def on_message(client, message):
             )
             if end_dt.tzinfo is None:
                 end_dt = end_dt.replace(tzinfo=timezone.utc)
-            end_ms = min(
+            request_end_ms = min(
                 int(end_dt.timestamp() * 1000),
                 now_ms,
             )
         else:
-            end_ms = now_ms
+            request_end_ms = now_ms
 
         period_minutes = PERIOD_MINUTES[timeframe]
 
@@ -158,24 +185,26 @@ def on_message(client, message):
             period_minutes * count * 3,
             period_minutes * count,
         )
-        lookback_minutes = min(
+        request_span_minutes = min(
             requested_lookback_minutes,
             MAX_REQUEST_SPAN_MINUTES[timeframe],
         )
 
-        from_ms = end_ms - (lookback_minutes * 60 * 1000)
+        from_ms = request_end_ms - (request_span_minutes * 60 * 1000)
 
         req = ProtoOAGetTrendbarsReq()
         req.ctidTraderAccountId = ACCOUNT_ID
         req.symbolId = SYMBOL_ID
         req.period = ProtoOATrendbarPeriod.Value(timeframe)
         req.fromTimestamp = from_ms
-        req.toTimestamp = end_ms
+        req.toTimestamp = request_end_ms
         req.count = count
 
         client.send(req)
 
     elif message.payloadType == ProtoOAGetTrendbarsRes().payloadType:
+        request_stage = "complete"
+        print("cTrader stage: trendbars received", file=sys.stderr)
         res = Protobuf.extract(message)
 
         bars = []
@@ -216,30 +245,64 @@ def on_message(client, message):
             "count": len(bars),
             "requested_to": (
                 datetime.fromtimestamp(
-                    end_ms / 1000,
+                    request_end_ms / 1000,
                     tz=timezone.utc,
                 ).isoformat()
             ),
-            "request_span_minutes": lookback_minutes,
+            "request_span_minutes": request_span_minutes,
             "bars": bars,
         }
 
         reactor.stop()
 
 
+def disconnected(client, reason):
+    global result
+
+    if result is None:
+        result = {
+            "error": "cTrader disconnected before bars response",
+            "stage": request_stage,
+            "details": str(reason),
+        }
+
+    if reactor.running:
+        reactor.stop()
+
+
+def on_timeout():
+    global result
+
+    if result is None:
+        result = {
+            "error": "cTrader request timed out",
+            "stage": request_stage,
+            "symbol": symbol_name,
+            "symbol_id": SYMBOL_ID,
+            "timeframe": timeframe,
+        }
+
+    if reactor.running:
+        reactor.stop()
+
+
 client.setConnectedCallback(connected)
+client.setDisconnectedCallback(disconnected)
 client.setMessageReceivedCallback(on_message)
 
 client.startService()
 
 reactor.callLater(
-    35,
-    lambda: reactor.stop() if reactor.running else None,
+    25,
+    on_timeout,
 )
 
 reactor.run()
 
 if result is None:
-    result = {"error": "cTrader request timed out"}
+    result = {
+        "error": "cTrader worker stopped without a result",
+        "stage": request_stage,
+    }
 
 print(json.dumps(result, indent=2))
