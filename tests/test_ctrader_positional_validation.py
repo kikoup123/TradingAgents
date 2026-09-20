@@ -234,3 +234,88 @@ def test_sequence_roles_prevent_c3_continuation_from_counting_as_new_primary() -
     assert summary["primary_sequence_outcomes"] == {"TARGET_HIT": 1}
     assert summary["completed_primary_sequence_outcomes"] == 1
     assert summary["primary_sequence_target_hit_rate"] == 1.0
+
+
+def test_days_validation_fetches_paginated_h1_m5_with_warmup(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def fake_paginated_bars(**kwargs):
+        calls.append(kwargs)
+        bars = _htf_bars() if kwargs["timeframe"] == "H1" else _ltf_bars()
+        return {
+            "symbol": kwargs["symbol"],
+            "timeframe": kwargs["timeframe"],
+            "requested_start": str(kwargs["start_time"]),
+            "requested_end": str(kwargs["end_time"]),
+            "page_size": kwargs["page_size"],
+            "pages_requested": 2,
+            "bars": bars,
+            "count": len(bars),
+            "first": bars[0]["time"],
+            "last": bars[-1]["time"],
+            "execution_allowed": False,
+        }
+
+    monkeypatch.setattr(
+        validation,
+        "fetch_paginated_bars",
+        fake_paginated_bars,
+    )
+    monkeypatch.setattr(
+        validation,
+        "evaluate_positional_from_bars",
+        lambda *args, direction, **kwargs: _wait_result(
+            direction,
+            "WAIT_HTF_FRACTAL",
+        ),
+    )
+
+    result = validation.validate_positional_history_days(
+        symbol="NASDAQ",
+        htf_timeframe="H1",
+        days=2,
+        end_time="2026-09-19T12:00:00+00:00",
+        warmup_days=1,
+        page_size=500,
+        outcome_horizon_htf_bars=4,
+    )
+
+    assert [(call["timeframe"], call["page_size"]) for call in calls] == [
+        ("H1", 500),
+        ("M5", 500),
+    ]
+    assert result["historical_fetch"]["days"] == 2
+    assert result["historical_fetch"]["warmup_days"] == 1
+    assert result["historical_fetch"]["htf"]["pages_requested"] == 2
+    assert result["historical_fetch"]["ltf"]["pages_requested"] == 2
+    assert result["execution_allowed"] is False
+
+
+def test_entry_window_filters_warmup_candles_without_removing_context(
+    monkeypatch,
+) -> None:
+    seen_entry_times: list[str] = []
+
+    def fake_evaluate(htf_bars, ltf_bars, *, direction, **kwargs):
+        seen_entry_times.append(htf_bars[-1]["time"])
+        return _wait_result(direction, "WAIT_HTF_FRACTAL")
+
+    monkeypatch.setattr(
+        validation,
+        "evaluate_positional_from_bars",
+        fake_evaluate,
+    )
+
+    validation.scan_positional_history_from_bars(
+        _htf_bars(),
+        _ltf_bars(),
+        htf_timeframe="H1",
+        symbol="NASDAQ",
+        entry_start_time="2026-09-19T11:00:00+00:00",
+        entry_end_time="2026-09-19T12:00:00+00:00",
+    )
+
+    assert set(seen_entry_times) == {
+        "2026-09-19T11:00:00+00:00",
+        "2026-09-19T12:00:00+00:00",
+    }
