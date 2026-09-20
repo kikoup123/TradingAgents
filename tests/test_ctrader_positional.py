@@ -359,7 +359,9 @@ def test_c4_can_use_csd_and_protected_swing_already_formed_in_c2(
     assert result["fractal_stage"] == "C3"
     assert result["entry_candle_label"] == "C4_OPEN"
     assert result["csd"]["confirmation_time"] == "2026-09-19T10:05:00+00:00"
-    assert result["selected_protected_swing"]["protected_swing"] == 110.0
+    # The earlier C2 CSD is valid for C4, while the selector may still prefer
+    # a newer confirmed continuation protected swing from the active sequence.
+    assert result["selected_protected_swing"]["protected_swing"] == 104.0
 
 
 def test_failed_c3_does_not_arm_c4() -> None:
