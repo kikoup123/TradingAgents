@@ -1,17 +1,10 @@
 from __future__ import annotations
 
-from tradingagents.dataflows.ctrader_csd import (
-    analyze_csd_orderflow,
-)
-from tradingagents.dataflows.ctrader_smt import (
-    detect_smt,
-)
-from tradingagents.dataflows.ctrader_entry import (
-    evaluate_ltf_continuation,
-)
-from tradingagents.dataflows.ctrader_unicorn import (
-    evaluate_unicorn_entry,
-)
+from tradingagents.dataflows.ctrader_csd import analyze_csd_orderflow
+from tradingagents.dataflows.ctrader_entry import evaluate_ltf_continuation
+from tradingagents.dataflows.ctrader_positional import evaluate_positional_entry
+from tradingagents.dataflows.ctrader_smt import detect_smt
+from tradingagents.dataflows.ctrader_unicorn import evaluate_unicorn_entry
 
 
 def _direction_from_control(
@@ -357,31 +350,96 @@ def evaluate_master_setup(
     # PRE-ENTRY MASTER GATE
     # ==================================================
 
-    mandatory_pre_entry = (
+    core_pre_entry = (
         htf_gate["passed"]
         and liquidity_pass
         and smt_pass
         and csd_pass
         and iof_pass
+    )
+
+    # Unicorn remains the precision fallback and still
+    # requires the existing LTF continuation gate.
+    unicorn_pre_entry = (
+        core_pre_entry
         and ltf_pass
     )
 
     # ==================================================
-    # FINAL UNICORN / HOUSING ENTRY MODEL
+    # POSITIONAL ENTRY FIRST, UNICORN AS FALLBACK
     # ==================================================
 
-    entry_result = {
+    positional_result = {
         "status":
             "BLOCKED_BY_PRE_ENTRY",
 
+        "entry_model":
+            "POSITIONAL",
+
         "entry_gate_passed":
             False,
+
+        "fallback_to_unicorn":
+            True,
 
         "execution_allowed":
             False,
     }
 
-    if mandatory_pre_entry:
+    if core_pre_entry:
+
+        # H1 -> M5 is the active positional pair for
+        # the current NASDAQ master setup.  The engine
+        # itself supports the complete Trading Sand
+        # fractal map (W1->H4, D1->H1, H4->M15,
+        # H1->M5, M30->M3, M15->M1).
+        positional_result = (
+            evaluate_positional_entry(
+                symbol="NASDAQ",
+                direction=direction,
+                htf_timeframe="H1",
+                count=execution_count,
+                pivot_window=
+                    pivot_window,
+                confirmation_bars=
+                    confirmation_bars,
+            )
+        )
+
+    positional_pass = (
+        positional_result.get(
+            "entry_gate_passed"
+        ) is True
+    )
+
+    positional_consumed = (
+        positional_result.get(
+            "status"
+        )
+        in {
+            "POSITIONAL_TARGET_HIT",
+            "POSITIONAL_STOPPED",
+            "POSITIONAL_OUTCOME_AMBIGUOUS",
+        }
+    )
+
+    positional_fallback = (
+        positional_result.get(
+            "fallback_to_unicorn",
+            True,
+        ) is True
+    )
+
+    entry_result = positional_result
+    selected_entry_model = "POSITIONAL"
+
+    if (
+        core_pre_entry
+        and not positional_pass
+        and not positional_consumed
+        and positional_fallback
+        and unicorn_pre_entry
+    ):
 
         entry_result = (
             evaluate_unicorn_entry(
@@ -394,6 +452,8 @@ def evaluate_master_setup(
                     confirmation_bars,
             )
         )
+
+        selected_entry_model = "UNICORN_HOUSING"
 
     entry_pass = (
         entry_result.get(
@@ -411,11 +471,14 @@ def evaluate_master_setup(
         ) == "INVALIDATED"
     )
 
-    if not mandatory_pre_entry:
+    if not core_pre_entry:
         entry_gate_status = "BLOCKED"
 
     elif entry_pass:
         entry_gate_status = "PASS"
+
+    elif positional_consumed:
+        entry_gate_status = "COMPLETE"
 
     elif entry_invalidated:
         entry_gate_status = "FAIL"
@@ -459,9 +522,27 @@ def evaluate_master_setup(
         ),
 
         "LTF": (
+            "BYPASSED_POSITIONAL"
+            if positional_pass
+            else (
+                "PASS"
+                if ltf_pass
+                else "FAIL"
+            )
+        ),
+
+        "POSITIONAL": (
             "PASS"
-            if ltf_pass
-            else "FAIL"
+            if positional_pass
+            else (
+                "COMPLETE"
+                if positional_consumed
+                else (
+                    "WAIT"
+                    if core_pre_entry
+                    else "BLOCKED"
+                )
+            )
         ),
 
         "ENTRY":
@@ -477,6 +558,7 @@ def evaluate_master_setup(
             "CSD",
             "IOF",
             "LTF",
+            "POSITIONAL",
             "ENTRY",
         )
         if gates[gate] == "FAIL"
@@ -491,6 +573,7 @@ def evaluate_master_setup(
             "CSD",
             "IOF",
             "LTF",
+            "POSITIONAL",
             "ENTRY",
         )
         if gates[gate]
@@ -500,9 +583,22 @@ def evaluate_master_setup(
         }
     ]
 
-    if not mandatory_pre_entry:
+    if (
+        not core_pre_entry
+        or positional_result.get(
+            "status"
+        ) == "POSITIONAL_STOPPED"
+    ):
 
         setup_status = "BLOCKED"
+
+    elif positional_result.get(
+        "status"
+    ) == "POSITIONAL_TARGET_HIT":
+
+        setup_status = (
+            "POSITIONAL_MODEL_COMPLETED"
+        )
 
     elif entry_invalidated:
 
@@ -536,7 +632,16 @@ def evaluate_master_setup(
         # Model confirmation and broker
         # order execution remain separate.
         "entry_model_confirmed":
+            (
+                entry_pass
+                or positional_consumed
+            ),
+
+        "entry_signal_active":
             entry_pass,
+
+        "selected_entry_model":
+            selected_entry_model,
 
         # Still FALSE:
         # no automatic order placement.
@@ -544,7 +649,14 @@ def evaluate_master_setup(
             False,
 
         "pre_entry_gates_passed":
-            mandatory_pre_entry,
+            (
+                core_pre_entry
+                and (
+                    positional_pass
+                    or ltf_pass
+                    or positional_consumed
+                )
+            ),
 
         "failed_gates":
             failed_gates,
@@ -622,6 +734,9 @@ def evaluate_master_setup(
                 ),
         },
 
+        "POSITIONAL_detail":
+            positional_result,
+
         "LTF_detail": {
             "passed":
                 ltf_pass,
@@ -651,7 +766,9 @@ def evaluate_master_setup(
             "SMT",
             "First CSD",
             "Post-first-CSD IOF",
-            "LTF continuation",
+            "Positional check: HTF close + mapped LTF CSD + EQ-valid protected swing",
+            "C3/C4 open -> protected-swing stop -> HTF STD -2",
+            "OR LTF continuation",
             "Breaker + FVG Unicorn",
             "Negated internal FVG",
             "Housing Candle",
@@ -676,10 +793,10 @@ def evaluate_master_setup(
                 ),
 
             "reason": (
-                "The entry model can now be "
-                "validated deterministically, "
-                "but automatic broker execution "
-                "remains disabled."
+                "Positional and Unicorn/Housing "
+                "entry models can now be validated "
+                "deterministically, but automatic "
+                "broker execution remains disabled."
             ),
         },
     }

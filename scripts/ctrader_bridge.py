@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -150,15 +151,43 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        to_time = query.get(
+            "to",
+            [None],
+        )[0]
+        if to_time:
+            try:
+                datetime.fromisoformat(
+                    to_time.replace("Z", "+00:00")
+                )
+            except ValueError:
+                send_json(
+                    self,
+                    400,
+                    {
+                        "error": "to must be a valid ISO-8601 timestamp",
+                    },
+                )
+                return
+
+        worker_command = [
+            sys.executable,
+            BARS_SCRIPT,
+            symbol,
+            timeframe,
+            str(count),
+        ]
+        if to_time:
+            worker_command.extend(
+                [
+                    "--to",
+                    to_time,
+                ]
+            )
+
         try:
             result = subprocess.run(
-                [
-                    sys.executable,
-                    BARS_SCRIPT,
-                    symbol,
-                    timeframe,
-                    str(count),
-                ],
+                worker_command,
                 cwd=PROJECT_ROOT,
                 capture_output=True,
                 text=True,
@@ -220,6 +249,7 @@ print("Execution: DISABLED")
 print("Endpoints:")
 print("  GET /health")
 print("  GET /bars?symbol=XAUUSD&timeframe=H4&count=100")
+print("  GET /bars?symbol=NASDAQ&timeframe=M5&count=2000&to=<ISO-UTC>")
 print()
 print("Press Control+C to stop.")
 
