@@ -76,6 +76,12 @@ def _record_from_result(
             f"{model_c1.get('time')}|{model_c2.get('time')}"
         )
 
+    realized_r = None
+    if outcome.get("status") == "TARGET_HIT" and result.get("risk_reward") is not None:
+        realized_r = float(result["risk_reward"])
+    elif outcome.get("status") == "STOPPED":
+        realized_r = -1.0
+
     return {
         "candidate_number": candidate_number,
         "sequence_id": sequence_id,
@@ -108,6 +114,7 @@ def _record_from_result(
         "target_zero": target.get("zero_reference"),
         "target_one": target.get("one_reference"),
         "risk_reward": result.get("risk_reward"),
+        "realized_r": realized_r,
         "outcome": outcome.get("status"),
         "outcome_time": outcome.get("time"),
         "trail_stop_candidate": result.get("trail_stop_candidate"),
@@ -136,6 +143,84 @@ def _annotate_sequence_roles(records: list[dict[str, Any]]) -> None:
                 if index == 1
                 else "SECONDARY_CONTINUATION"
             )
+
+
+def _performance_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
+    completed = [
+        record
+        for record in records
+        if record.get("outcome") in {"TARGET_HIT", "STOPPED"}
+        and record.get("realized_r") is not None
+    ]
+    wins = [
+        record
+        for record in completed
+        if record["outcome"] == "TARGET_HIT"
+    ]
+    losses = [
+        record
+        for record in completed
+        if record["outcome"] == "STOPPED"
+    ]
+
+    total_r = sum(float(record["realized_r"]) for record in completed)
+    gross_win_r = sum(float(record["realized_r"]) for record in wins)
+    gross_loss_r = abs(sum(float(record["realized_r"]) for record in losses))
+
+    return {
+        "completed": len(completed),
+        "wins": len(wins),
+        "losses": len(losses),
+        "hit_rate": (
+            len(wins) / len(completed)
+            if completed
+            else None
+        ),
+        "total_realized_r": total_r,
+        "expectancy_r_per_completed_signal": (
+            total_r / len(completed)
+            if completed
+            else None
+        ),
+        "average_win_r": (
+            mean(float(record["realized_r"]) for record in wins)
+            if wins
+            else None
+        ),
+        "average_loss_r": (
+            mean(float(record["realized_r"]) for record in losses)
+            if losses
+            else None
+        ),
+        "profit_factor_r": (
+            gross_win_r / gross_loss_r
+            if gross_loss_r > 0
+            else None
+        ),
+    }
+
+
+def _group_performance(
+    records: list[dict[str, Any]],
+    key: str,
+) -> dict[str, Any]:
+    values = sorted(
+        {
+            str(record.get(key))
+            for record in records
+            if record.get(key) is not None
+        }
+    )
+    return {
+        value: _performance_metrics(
+            [
+                record
+                for record in records
+                if str(record.get(key)) == value
+            ]
+        )
+        for value in values
+    }
 
 
 def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -196,6 +281,13 @@ def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         for record in primary
         if record["risk_reward"] is not None
     ]
+    primary_performance = _performance_metrics(primary)
+    primary_by_stage = _group_performance(primary, "fractal_stage")
+    primary_by_direction = _group_performance(primary, "direction")
+    primary_by_protected_swing = _group_performance(
+        primary,
+        "protected_swing_source",
+    )
 
     return {
         "fractal_candidates": len(records),
@@ -221,6 +313,12 @@ def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
             mean(primary_rr)
             if primary_rr
             else None
+        ),
+        "primary_sequence_performance_r": primary_performance,
+        "primary_performance_by_stage": primary_by_stage,
+        "primary_performance_by_direction": primary_by_direction,
+        "primary_performance_by_protected_swing_source": (
+            primary_by_protected_swing
         ),
         "execution_enabled": False,
         "interpretation": (
