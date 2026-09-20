@@ -59,8 +59,16 @@ def _record_from_result(
     model_c2 = fractal_context.get("c2") or {}
     tspot = result.get("tspot") or qualifying.get("tspot") or {}
 
+    sequence_id = None
+    if model_c1.get("time") is not None and model_c2.get("time") is not None:
+        sequence_id = (
+            f"{result.get('direction')}|"
+            f"{model_c1.get('time')}|{model_c2.get('time')}"
+        )
+
     return {
         "candidate_number": candidate_number,
+        "sequence_id": sequence_id,
         "symbol": result.get("symbol"),
         "direction": result.get("direction"),
         "fractal_stage": result.get("fractal_stage"),
@@ -97,6 +105,29 @@ def _record_from_result(
     }
 
 
+def _annotate_sequence_roles(records: list[dict[str, Any]]) -> None:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        record["sequence_entry_number"] = None
+        record["sequence_entry_role"] = None
+        if record.get("route") != "POSITIONAL":
+            continue
+        sequence_id = record.get("sequence_id")
+        if sequence_id is None:
+            continue
+        grouped.setdefault(sequence_id, []).append(record)
+
+    for sequence_records in grouped.values():
+        sequence_records.sort(key=lambda item: item.get("entry_time") or "")
+        for index, record in enumerate(sequence_records, start=1):
+            record["sequence_entry_number"] = index
+            record["sequence_entry_role"] = (
+                "PRIMARY"
+                if index == 1
+                else "SECONDARY_CONTINUATION"
+            )
+
+
 def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     routes = Counter(record["route"] for record in records)
     directions = Counter(record["direction"] for record in records)
@@ -113,6 +144,16 @@ def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         for record in records
         if record["route"] == "POSITIONAL"
     ]
+    primary = [
+        record
+        for record in confirmed
+        if record.get("sequence_entry_role") == "PRIMARY"
+    ]
+    secondary = [
+        record
+        for record in confirmed
+        if record.get("sequence_entry_role") == "SECONDARY_CONTINUATION"
+    ]
     rr_values = [
         float(record["risk_reward"])
         for record in confirmed
@@ -125,6 +166,26 @@ def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         if completed > 0
         else None
     )
+
+    primary_outcomes = Counter(
+        record["outcome"]
+        for record in primary
+        if record["outcome"] is not None
+    )
+    primary_completed = (
+        primary_outcomes.get("TARGET_HIT", 0)
+        + primary_outcomes.get("STOPPED", 0)
+    )
+    primary_target_hit_rate = (
+        primary_outcomes.get("TARGET_HIT", 0) / primary_completed
+        if primary_completed > 0
+        else None
+    )
+    primary_rr = [
+        float(record["risk_reward"])
+        for record in primary
+        if record["risk_reward"] is not None
+    ]
 
     return {
         "fractal_candidates": len(records),
@@ -141,6 +202,16 @@ def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         "completed_positional_outcomes": completed,
         "target_hit_rate_on_completed_signals": target_hit_rate,
         "average_planned_rr": mean(rr_values) if rr_values else None,
+        "unique_positional_sequences": len(primary),
+        "secondary_positional_signals": len(secondary),
+        "primary_sequence_outcomes": dict(primary_outcomes),
+        "completed_primary_sequence_outcomes": primary_completed,
+        "primary_sequence_target_hit_rate": primary_target_hit_rate,
+        "primary_sequence_average_planned_rr": (
+            mean(primary_rr)
+            if primary_rr
+            else None
+        ),
         "execution_enabled": False,
         "interpretation": (
             "Signal-validation statistics only. Overlapping historical signals "
@@ -226,6 +297,8 @@ def scan_positional_history_from_bars(
                     candidate_number=candidate_number,
                 )
             )
+
+    _annotate_sequence_roles(records)
 
     coverage = {
         "htf_first": htf[0]["time"],
