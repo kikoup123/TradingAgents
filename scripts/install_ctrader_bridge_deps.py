@@ -1,9 +1,12 @@
-"""Install the cTrader bridge dependency without downgrading requests.
+"""Install the cTrader bridge runtime without altering TradingAgents requests.
 
-ctrader-open-api 0.9.2 hard-pins requests==2.32.3, while TradingAgents requires
-requests>=2.32.4. The Open API client does not need requests for the Twisted
-socket transport used by our worker, so install it with --no-deps and keep the
-project's newer requests package intact.
+ctrader-open-api 0.9.2 pins requests==2.32.3 while TradingAgents requires a
+newer requests release. Install the cTrader client without dependencies and
+install only the Twisted/protobuf runtime pieces used by the worker.
+
+service-identity is intentionally not required here. Twisted may emit a warning
+about it, but the cTrader worker can run without forcing a local cryptography
+build on Intel macOS.
 """
 
 from __future__ import annotations
@@ -20,12 +23,17 @@ def run(*args: str) -> None:
 
 
 def main() -> None:
-    run("install", "-e", ".[ctrader]")
+    run(
+        "install",
+        "--upgrade",
+        "pip",
+        "setuptools",
+        "wheel",
+    )
     run(
         "install",
         "Twisted>=22.2.0",
         "protobuf>=3.20.1",
-        "service-identity>=24.1.0",
     )
     run(
         "install",
@@ -38,7 +46,7 @@ def main() -> None:
             sys.executable,
             "-c",
             (
-                "import ctrader_open_api, requests, service_identity; "
+                "import ctrader_open_api, requests, twisted, google.protobuf; "
                 "print('cTrader bridge dependencies OK'); "
                 "print('requests', requests.__version__)"
             ),
