@@ -67,6 +67,10 @@ def test_history_scan_records_positional_and_unicorn_fallback_without_future_lea
                     "fallback_to_unicorn": False,
                     "fractal_stage": "C2",
                     "entry_candle_label": "C3_OPEN",
+                    "fractal_context": {
+                        "c1": {"time": "2026-09-19T09:00:00+00:00"},
+                        "c2": {"time": "2026-09-19T10:00:00+00:00"},
+                    },
                     "next_htf_candle_open": {
                         "time": entry_time,
                         "price": 97.0,
@@ -128,6 +132,10 @@ def test_history_scan_records_positional_and_unicorn_fallback_without_future_lea
     assert summary["unicorn_fallback_required"] == 1
     assert summary["observed_outcomes"] == {"TARGET_HIT": 1}
     assert summary["target_hit_rate_on_completed_signals"] == 1.0
+    assert summary["unique_positional_sequences"] == 1
+    assert summary["secondary_positional_signals"] == 0
+    assert summary["primary_sequence_target_hit_rate"] == 1.0
+    assert result["records"][1]["sequence_entry_role"] == "PRIMARY"
     assert result["execution_allowed"] is False
 
     eleven_calls = [
@@ -189,3 +197,40 @@ def test_validate_history_fetches_mapped_h1_m5_pair(monkeypatch) -> None:
     assert result["htf_timeframe"] == "H1"
     assert result["ltf_timeframe"] == "M5"
     assert result["execution_allowed"] is False
+
+
+def test_sequence_roles_prevent_c3_continuation_from_counting_as_new_primary() -> None:
+    records = [
+        {
+            "route": "POSITIONAL",
+            "sequence_id": "bullish|c1|c2",
+            "entry_time": "2026-09-19T11:00:00+00:00",
+            "outcome": "TARGET_HIT",
+            "risk_reward": 2.0,
+            "direction": "bullish",
+            "fractal_stage": "C2",
+            "status": "POSITIONAL_TARGET_HIT",
+        },
+        {
+            "route": "POSITIONAL",
+            "sequence_id": "bullish|c1|c2",
+            "entry_time": "2026-09-19T12:00:00+00:00",
+            "outcome": "TARGET_HIT",
+            "risk_reward": 3.0,
+            "direction": "bullish",
+            "fractal_stage": "C3",
+            "status": "POSITIONAL_TARGET_HIT",
+        },
+    ]
+
+    validation._annotate_sequence_roles(records)
+    summary = validation._summarize(records)
+
+    assert records[0]["sequence_entry_role"] == "PRIMARY"
+    assert records[1]["sequence_entry_role"] == "SECONDARY_CONTINUATION"
+    assert summary["positional_signals"] == 2
+    assert summary["unique_positional_sequences"] == 1
+    assert summary["secondary_positional_signals"] == 1
+    assert summary["primary_sequence_outcomes"] == {"TARGET_HIT": 1}
+    assert summary["completed_primary_sequence_outcomes"] == 1
+    assert summary["primary_sequence_target_hit_rate"] == 1.0
