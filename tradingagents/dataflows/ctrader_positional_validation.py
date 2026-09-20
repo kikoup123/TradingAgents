@@ -11,10 +11,11 @@ Automatic broker execution remains disabled.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from statistics import mean
 from typing import Any
 
+from tradingagents.dataflows.ctrader_history import fetch_paginated_bars
 from tradingagents.dataflows.ctrader_positional import (
     FRACTAL_TIMEFRAME_PAIRS,
     _dt,
@@ -31,6 +32,15 @@ HTF_MINUTES = {
     "H1": 60,
     "M30": 30,
     "M15": 15,
+}
+
+DEFAULT_WARMUP_DAYS = {
+    "W1": 90,
+    "D1": 30,
+    "H4": 14,
+    "H1": 7,
+    "M30": 3,
+    "M15": 3,
 }
 
 
@@ -230,6 +240,8 @@ def scan_positional_history_from_bars(
     confirmation_bars: int = 10,
     min_tick: float = 1e-12,
     outcome_horizon_htf_bars: int = 1,
+    entry_start_time: datetime | str | None = None,
+    entry_end_time: datetime | str | None = None,
 ) -> dict[str, Any]:
     """Scan historical HTF opens without using future data for entry qualification."""
 
@@ -239,6 +251,19 @@ def scan_positional_history_from_bars(
         raise ValueError(f"Unsupported positional HTF: {htf_timeframe}")
     if outcome_horizon_htf_bars < 1 or outcome_horizon_htf_bars > 20:
         raise ValueError("outcome_horizon_htf_bars must be between 1 and 20")
+
+    entry_start = _dt(entry_start_time) if isinstance(entry_start_time, str) else entry_start_time
+    entry_end = _dt(entry_end_time) if isinstance(entry_end_time, str) else entry_end_time
+    if entry_start is not None and entry_start.tzinfo is None:
+        entry_start = entry_start.replace(tzinfo=timezone.utc)
+    if entry_end is not None and entry_end.tzinfo is None:
+        entry_end = entry_end.replace(tzinfo=timezone.utc)
+    if (
+        entry_start is not None
+        and entry_end is not None
+        and entry_start >= entry_end
+    ):
+        raise ValueError("entry_start_time must be earlier than entry_end_time")
 
     htf = _sort_bars(htf_bars)
     ltf = _sort_bars(ltf_bars)
@@ -261,6 +286,11 @@ def scan_positional_history_from_bars(
 
     for entry_index in range(2, len(htf)):
         entry_time = _dt(htf[entry_index]["time"])
+        if entry_start is not None and entry_time < entry_start:
+            continue
+        if entry_end is not None and entry_time > entry_end:
+            continue
+
         outcome_cutoff = entry_time + horizon
 
         # The HTF prefix ends at the candle whose open is being evaluated.
@@ -308,6 +338,16 @@ def scan_positional_history_from_bars(
         "ltf_last": ltf[-1]["time"] if ltf else None,
         "ltf_bars": len(ltf),
         "outcome_horizon_htf_bars": outcome_horizon_htf_bars,
+        "entry_start_time": (
+            entry_start.isoformat()
+            if entry_start is not None
+            else None
+        ),
+        "entry_end_time": (
+            entry_end.isoformat()
+            if entry_end is not None
+            else None
+        ),
     }
 
     return {
@@ -357,3 +397,106 @@ def validate_positional_history(
         min_tick=min_tick,
         outcome_horizon_htf_bars=outcome_horizon_htf_bars,
     )
+
+
+
+def validate_positional_history_days(
+    *,
+    symbol: str = "NASDAQ",
+    htf_timeframe: str = "H1",
+    days: int = 90,
+    end_time: datetime | str | None = None,
+    warmup_days: int | None = None,
+    page_size: int = 2000,
+    pivot_window: int = 2,
+    confirmation_bars: int = 10,
+    min_tick: float = 1e-12,
+    outcome_horizon_htf_bars: int = 4,
+) -> dict[str, Any]:
+    """Fetch paginated cTrader history and validate a calendar-day window."""
+
+    symbol = _normalize(symbol)
+    htf_timeframe = htf_timeframe.strip().upper()
+    ltf_timeframe = FRACTAL_TIMEFRAME_PAIRS.get(htf_timeframe)
+    if ltf_timeframe is None:
+        raise ValueError(f"Unsupported positional HTF: {htf_timeframe}")
+    if days < 1 or days > 3650:
+        raise ValueError("days must be between 1 and 3650")
+    if page_size < 1 or page_size > 2000:
+        raise ValueError("page_size must be between 1 and 2000")
+
+    if end_time is None:
+        end = datetime.now(timezone.utc)
+    elif isinstance(end_time, str):
+        end = _dt(end_time)
+    else:
+        end = end_time
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    end = end.astimezone(timezone.utc)
+
+    entry_start = end - timedelta(days=days)
+    warmup = (
+        DEFAULT_WARMUP_DAYS[htf_timeframe]
+        if warmup_days is None
+        else warmup_days
+    )
+    if warmup < 0 or warmup > 365:
+        raise ValueError("warmup_days must be between 0 and 365")
+
+    fetch_start = entry_start - timedelta(days=warmup)
+    outcome_minutes = (
+        HTF_MINUTES[htf_timeframe]
+        * outcome_horizon_htf_bars
+    )
+    data_end = min(
+        end + timedelta(minutes=outcome_minutes),
+        datetime.now(timezone.utc),
+    )
+
+    htf_history = fetch_paginated_bars(
+        symbol=symbol,
+        timeframe=htf_timeframe,
+        start_time=fetch_start,
+        end_time=data_end,
+        page_size=page_size,
+    )
+    ltf_history = fetch_paginated_bars(
+        symbol=symbol,
+        timeframe=ltf_timeframe,
+        start_time=fetch_start,
+        end_time=data_end,
+        page_size=page_size,
+    )
+
+    result = scan_positional_history_from_bars(
+        htf_history["bars"],
+        ltf_history["bars"],
+        htf_timeframe=htf_timeframe,
+        symbol=symbol,
+        pivot_window=pivot_window,
+        confirmation_bars=confirmation_bars,
+        min_tick=min_tick,
+        outcome_horizon_htf_bars=outcome_horizon_htf_bars,
+        entry_start_time=entry_start,
+        entry_end_time=end,
+    )
+    result["historical_fetch"] = {
+        "days": days,
+        "warmup_days": warmup,
+        "requested_entry_start": entry_start.isoformat(),
+        "requested_entry_end": end.isoformat(),
+        "data_end": data_end.isoformat(),
+        "htf": {
+            key: value
+            for key, value in htf_history.items()
+            if key != "bars"
+        },
+        "ltf": {
+            key: value
+            for key, value in ltf_history.items()
+            if key != "bars"
+        },
+        "execution_allowed": False,
+    }
+    return result
