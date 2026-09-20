@@ -737,6 +737,7 @@ def evaluate_positional_from_bars(
     confirmation_bars: int = 10,
     symbol: str | None = None,
     min_tick: float = 1e-12,
+    assume_sorted: bool = False,
 ) -> dict[str, Any]:
     """Evaluate C3/C4 positional entry from chronological HTF/LTF OHLC bars."""
 
@@ -761,8 +762,12 @@ def evaluate_positional_from_bars(
         raise ValueError("min_tick must be > 0")
 
     states = ["IDLE"]
-    htf = _sort_bars(htf_bars)
-    ltf = _sort_bars(ltf_bars)
+    if assume_sorted:
+        htf = htf_bars
+        ltf = ltf_bars
+    else:
+        htf = _sort_bars(htf_bars)
+        ltf = _sort_bars(ltf_bars)
 
     if len(htf) < 3:
         return _base_result(
