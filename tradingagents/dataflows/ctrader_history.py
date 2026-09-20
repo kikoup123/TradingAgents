@@ -42,7 +42,12 @@ def _fetch_page(
         },
         timeout=55,
     )
-    response.raise_for_status()
+    if not response.ok:
+        detail = response.text[-4000:]
+        raise RuntimeError(
+            f"cTrader bridge returned HTTP {response.status_code}: {detail}"
+        )
+
     payload = response.json()
     if "error" in payload:
         raise RuntimeError(payload["error"])
