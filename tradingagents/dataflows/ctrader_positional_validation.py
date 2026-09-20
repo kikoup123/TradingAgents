@@ -10,6 +10,7 @@ Automatic broker execution remains disabled.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from statistics import mean
@@ -21,6 +22,7 @@ from tradingagents.dataflows.ctrader_positional import (
     _dt,
     _fetch,
     _normalize,
+    _resolve_fractal_stage,
     _sort_bars,
     evaluate_positional_from_bars,
 )
@@ -365,6 +367,8 @@ def scan_positional_history_from_bars(
 
     htf = _sort_bars(htf_bars)
     ltf = _sort_bars(ltf_bars)
+    ltf_times = [_dt(bar["time"]) for bar in ltf]
+
     if len(htf) < 3:
         return {
             "symbol": symbol,
@@ -392,17 +396,36 @@ def scan_positional_history_from_bars(
         outcome_cutoff = entry_time + horizon
 
         # The HTF prefix ends at the candle whose open is being evaluated.
-        # The positional engine never uses that candle's completed OHLC values
-        # to qualify the entry. Its high/low/close are only used after the fact
-        # for follow-through reporting.
+        # First resolve the inexpensive HTF fractal state. Most H1 candles are
+        # not positional candidates, so avoid building/scanning an M5 prefix
+        # until at least one direction has a valid C2/C3 fractal.
         htf_prefix = htf[: entry_index + 1]
-        ltf_window = [
-            bar
-            for bar in ltf
-            if _dt(bar["time"]) < outcome_cutoff
+        candidate_directions = [
+            direction
+            for direction in ("bearish", "bullish")
+            if _resolve_fractal_stage(
+                htf_prefix,
+                direction=direction,
+            )
+            is not None
         ]
+        if not candidate_directions:
+            continue
 
-        for direction in ("bearish", "bullish"):
+        # ltf is already sorted. Binary search replaces a full-history filter
+        # on every HTF candle and preserves the exact same cutoff semantics.
+        ltf_end = bisect_right(
+            ltf_times,
+            outcome_cutoff,
+        )
+        while (
+            ltf_end > 0
+            and ltf_times[ltf_end - 1] >= outcome_cutoff
+        ):
+            ltf_end -= 1
+        ltf_window = ltf[:ltf_end]
+
+        for direction in candidate_directions:
             result = evaluate_positional_from_bars(
                 htf_prefix,
                 ltf_window,
@@ -413,10 +436,8 @@ def scan_positional_history_from_bars(
                 confirmation_bars=confirmation_bars,
                 symbol=symbol,
                 min_tick=min_tick,
+                assume_sorted=True,
             )
-
-            if result.get("status") == "WAIT_HTF_FRACTAL":
-                continue
 
             candidate_number += 1
             records.append(
