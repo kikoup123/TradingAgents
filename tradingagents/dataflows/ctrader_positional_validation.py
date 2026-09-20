@@ -54,6 +54,9 @@ def _record_from_result(
     outcome = result.get("position_outcome") or {}
     next_open = result.get("next_htf_candle_open") or {}
     qualifying = result.get("qualifying_htf_candle") or {}
+    fractal_context = result.get("fractal_context") or {}
+    model_c1 = fractal_context.get("c1") or {}
+    model_c2 = fractal_context.get("c2") or {}
     tspot = result.get("tspot") or qualifying.get("tspot") or {}
 
     return {
@@ -68,6 +71,8 @@ def _record_from_result(
         "route": route,
         "fallback_to_unicorn": fallback,
         "reason": result.get("reason"),
+        "model_c1_time": model_c1.get("time"),
+        "model_c2_time": model_c2.get("time"),
         "qualifying_htf_time": qualifying.get("time"),
         "wick_equilibrium": qualifying.get(
             "directional_wick_equilibrium",
