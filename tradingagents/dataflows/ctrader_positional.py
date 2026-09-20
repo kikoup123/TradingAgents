@@ -862,29 +862,45 @@ def evaluate_positional_from_bars(
     raid_time = csd_event.get("raid_time")
     csd_confirmation_time = csd_event.get("confirmation_time")
     csd_protected = _protected_price(csd_event, direction)
-    csd_inside_qualifying = (
+
+    # C2 -> C3 positional entries require the CSD/protected swing to be born
+    # inside C2. For a valid C3 -> C4 continuation, the video model permits an
+    # already-formed CSD/protected swing from the active C2/C3 sequence, as long
+    # as it still exists before C4 opens. Requiring a brand-new CSD inside C3
+    # incorrectly eliminates those C4 positional entries.
+    csd_window_start = (
+        qualifying_start
+        if stage["stage"] == "C2"
+        else model_c2_start
+    )
+    structural_window_ltf = [
+        bar
+        for bar in pre_open
+        if csd_window_start <= _dt(bar["time"]) < next_open_time
+    ]
+    csd_ready_before_open = (
         raid_time is not None
         and csd_confirmation_time is not None
-        and qualifying_start <= _dt(raid_time) < next_open_time
-        and qualifying_start <= _dt(csd_confirmation_time) < next_open_time
+        and csd_window_start <= _dt(raid_time) < next_open_time
+        and csd_window_start <= _dt(csd_confirmation_time) < next_open_time
         and csd_protected is not None
         and _price_created_inside_candle(
-            qualifying_ltf,
+            structural_window_ltf,
             protected_price=csd_protected,
             direction=direction,
         )
     )
-    if not csd_inside_qualifying:
+    if not csd_ready_before_open:
         result = _base_result(
             symbol=symbol,
             direction=direction,
             htf_timeframe=htf_timeframe,
             ltf_timeframe=ltf_timeframe,
-            status="WAIT_CSD_INSIDE_QUALIFYING_CANDLE",
+            status="WAIT_CSD_BEFORE_POSITIONAL_OPEN",
             state_trace=states,
             reason=(
-                "The directional mapped-LTF CSD was not fully formed inside the "
-                f"closed {stage['stage']} candle before {stage['entry_label']}."
+                "The directional mapped-LTF CSD/protected swing was not fully "
+                f"formed inside the active fractal sequence before {stage['entry_label']}."
             ),
             fallback_to_unicorn=True,
         )
@@ -894,6 +910,7 @@ def evaluate_positional_from_bars(
                 "tspot": tspot,
                 "fractal_stage": stage["stage"],
                 "csd": csd_event,
+                "csd_window_start": csd_window_start.isoformat(),
             }
         )
         return result
@@ -901,7 +918,7 @@ def evaluate_positional_from_bars(
     states.append("CSD_CONFIRMED")
 
     selected, candidates = _select_protected_swing(
-        qualifying_bars=qualifying_ltf,
+        qualifying_bars=structural_window_ltf,
         csd_event=csd_event,
         direction=direction,
         eq=eq,
@@ -999,8 +1016,17 @@ def evaluate_positional_from_bars(
         stop_price=stop_price,
         target_price=target_price,
     )
+    trail_bars = post_open
+    if outcome["status"] != "ACTIVE" and outcome.get("time") is not None:
+        outcome_time = _dt(outcome["time"])
+        trail_bars = [
+            bar
+            for bar in post_open
+            if _dt(bar["time"]) < outcome_time
+        ]
+
     trail = _trail_candidate(
-        post_open,
+        trail_bars,
         direction=direction,
         initial_stop=stop_price,
     )
