@@ -46,6 +46,22 @@ PERIOD_MINUTES = {
     "W1": 10080,
 }
 
+# cTrader applies timeframe-dependent limits to the distance between
+# fromTimestamp and toTimestamp for historical trendbar requests. Keep each
+# worker request deliberately conservative and let the higher-level history
+# loader page backward repeatedly.
+MAX_REQUEST_SPAN_MINUTES = {
+    "M1": 7 * 24 * 60,
+    "M3": 14 * 24 * 60,
+    "M5": 30 * 24 * 60,
+    "M15": 60 * 24 * 60,
+    "M30": 60 * 24 * 60,
+    "H1": 30 * 24 * 60,
+    "H4": 120 * 24 * 60,
+    "D1": 365 * 24 * 60,
+    "W1": 5 * 365 * 24 * 60,
+}
+
 parser = argparse.ArgumentParser()
 parser.add_argument("symbol")
 parser.add_argument("timeframe")
@@ -138,13 +154,14 @@ def on_message(client, message):
 
         period_minutes = PERIOD_MINUTES[timeframe]
 
-        lookback_minutes = max(
+        requested_lookback_minutes = max(
             period_minutes * count * 3,
-            30 * 24 * 60,
+            period_minutes * count,
         )
-
-        max_minutes = 10 * 365 * 24 * 60
-        lookback_minutes = min(lookback_minutes, max_minutes)
+        lookback_minutes = min(
+            requested_lookback_minutes,
+            MAX_REQUEST_SPAN_MINUTES[timeframe],
+        )
 
         from_ms = end_ms - (lookback_minutes * 60 * 1000)
 
@@ -203,6 +220,7 @@ def on_message(client, message):
                     tz=timezone.utc,
                 ).isoformat()
             ),
+            "request_span_minutes": lookback_minutes,
             "bars": bars,
         }
 
