@@ -50,6 +50,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("symbol")
 parser.add_argument("timeframe")
 parser.add_argument("count", type=int)
+parser.add_argument(
+    "--to",
+    dest="to_time",
+    default=None,
+    help="Optional UTC ISO-8601 end time for historical paging.",
+)
 args = parser.parse_args()
 
 symbol_name = args.symbol.strip().upper()
@@ -117,6 +123,19 @@ def on_message(client, message):
 
         now_ms = int(time.time() * 1000)
 
+        if args.to_time:
+            end_dt = datetime.fromisoformat(
+                args.to_time.replace("Z", "+00:00")
+            )
+            if end_dt.tzinfo is None:
+                end_dt = end_dt.replace(tzinfo=timezone.utc)
+            end_ms = min(
+                int(end_dt.timestamp() * 1000),
+                now_ms,
+            )
+        else:
+            end_ms = now_ms
+
         period_minutes = PERIOD_MINUTES[timeframe]
 
         lookback_minutes = max(
@@ -127,14 +146,14 @@ def on_message(client, message):
         max_minutes = 10 * 365 * 24 * 60
         lookback_minutes = min(lookback_minutes, max_minutes)
 
-        from_ms = now_ms - (lookback_minutes * 60 * 1000)
+        from_ms = end_ms - (lookback_minutes * 60 * 1000)
 
         req = ProtoOAGetTrendbarsReq()
         req.ctidTraderAccountId = ACCOUNT_ID
         req.symbolId = SYMBOL_ID
         req.period = ProtoOATrendbarPeriod.Value(timeframe)
         req.fromTimestamp = from_ms
-        req.toTimestamp = now_ms
+        req.toTimestamp = end_ms
         req.count = count
 
         client.send(req)
@@ -178,6 +197,12 @@ def on_message(client, message):
             "symbol_id": SYMBOL_ID,
             "timeframe": timeframe,
             "count": len(bars),
+            "requested_to": (
+                datetime.fromtimestamp(
+                    end_ms / 1000,
+                    tz=timezone.utc,
+                ).isoformat()
+            ),
             "bars": bars,
         }
 
