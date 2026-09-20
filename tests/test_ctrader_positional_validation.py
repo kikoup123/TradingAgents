@@ -319,3 +319,86 @@ def test_entry_window_filters_warmup_candles_without_removing_context(
         "2026-09-19T11:00:00+00:00",
         "2026-09-19T12:00:00+00:00",
     }
+
+
+
+def test_performance_metrics_use_trade_level_realized_r() -> None:
+    records = [
+        {
+            "outcome": "TARGET_HIT",
+            "realized_r": 2.0,
+            "risk_reward": 2.0,
+            "fractal_stage": "C2",
+            "direction": "bullish",
+            "protected_swing_source": "CSD_PROTECTED_SWING",
+        },
+        {
+            "outcome": "TARGET_HIT",
+            "realized_r": 4.0,
+            "risk_reward": 4.0,
+            "fractal_stage": "C3",
+            "direction": "bearish",
+            "protected_swing_source": "POST_CSD_CONTINUATION_PROTECTED_SWING",
+        },
+        {
+            "outcome": "STOPPED",
+            "realized_r": -1.0,
+            "risk_reward": 8.0,
+            "fractal_stage": "C2",
+            "direction": "bullish",
+            "protected_swing_source": "CSD_PROTECTED_SWING",
+        },
+        {
+            "outcome": "ACTIVE",
+            "realized_r": None,
+            "risk_reward": 10.0,
+            "fractal_stage": "C2",
+            "direction": "bullish",
+            "protected_swing_source": "CSD_PROTECTED_SWING",
+        },
+    ]
+
+    metrics = validation._performance_metrics(records)
+
+    assert metrics["completed"] == 3
+    assert metrics["wins"] == 2
+    assert metrics["losses"] == 1
+    assert metrics["total_realized_r"] == 5.0
+    assert metrics["expectancy_r_per_completed_signal"] == 5.0 / 3.0
+    assert metrics["average_win_r"] == 3.0
+    assert metrics["average_loss_r"] == -1.0
+    assert metrics["profit_factor_r"] == 6.0
+
+
+def test_record_realized_r_matches_outcome() -> None:
+    result = {
+        "symbol": "NASDAQ",
+        "direction": "bullish",
+        "fractal_stage": "C2",
+        "entry_model_confirmed": True,
+        "fallback_to_unicorn": False,
+        "risk_reward": 2.5,
+        "position_outcome": {
+            "status": "TARGET_HIT",
+            "time": "2026-09-19T12:30:00+00:00",
+        },
+        "next_htf_candle_open": {
+            "time": "2026-09-19T12:00:00+00:00",
+            "price": 100.0,
+        },
+        "execution_allowed": False,
+    }
+
+    record = validation._record_from_result(
+        result,
+        candidate_number=1,
+    )
+
+    assert record["realized_r"] == 2.5
+
+    result["position_outcome"]["status"] = "STOPPED"
+    stopped = validation._record_from_result(
+        result,
+        candidate_number=2,
+    )
+    assert stopped["realized_r"] == -1.0
