@@ -1,0 +1,5 @@
+cryptography>=43,<47
+databento>=0.77,<1
+fastapi>=0.115,<1
+requests>=2.32,<3
+uvicorn[standard]>=0.30,<1
